@@ -9,6 +9,7 @@ import {
 } from "~sync/common";
 import QuantumEntanglementKeepAlive from "../utils/keep-alive";
 import { aeoInit } from "./services/aeo-client";
+import { autoSyncAeoToken } from "./services/aeo-auth";
 import { linkExtensionMessageHandler, starter } from "./services/api";
 import {
   addTabsManagerMessages,
@@ -40,6 +41,30 @@ chrome.runtime.onInstalled.addListener((object) => {
   }
   initDefaultTrustedDomains();
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
+  // AEO: 安装时自动同步登录态
+  autoSyncAeoToken().catch((e) => console.warn("[AEO] Auto-sync failed", e));
+});
+
+chrome.runtime.onStartup?.addListener(() => {
+  // AEO: 浏览器启动时自动同步
+  autoSyncAeoToken({ openLoginIfMissing: false }).catch((e) =>
+    console.warn("[AEO] Startup auto-sync failed", e),
+  );
+});
+
+// AEO: 监听前端 tab 完成加载 → 用户刚登录完，立即同步
+chrome.webNavigation?.onCompleted.addListener(async (details) => {
+  if (details.frameId !== 0) return;
+  const apiKey = await storage.get<string>("aeoApiKey");
+  if (apiKey) return; // 已有 token，不打扰
+  const frontUrl = "https://aeo-ex9.pages.dev"; // 或从环境变量读
+  if (!details.url.startsWith(frontUrl)) return;
+  // 给页面 1.5s 让 React 把 token 写进 localStorage
+  setTimeout(() => {
+    autoSyncAeoToken({ openLoginIfMissing: false }).catch((e) =>
+      console.warn("[AEO] Post-login auto-sync failed", e),
+    );
+  }, 1500);
 });
 
 // Listen Message || 监听消息 || START

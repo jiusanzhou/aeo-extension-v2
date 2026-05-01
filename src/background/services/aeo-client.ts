@@ -12,6 +12,7 @@
 
 import { Storage } from "@plasmohq/storage";
 import { type SyncData, createTabsForPlatforms, getPlatformInfos, infoMap } from "~sync/common";
+import { autoSyncAeoToken } from "./aeo-auth";
 
 const storage = new Storage({ area: "local" });
 
@@ -328,12 +329,15 @@ async function reportTaskEvent(
 export function aeoInit(): void {
   console.log(`[AEO] Initializing (backend=${AEO_API_BASE})`);
 
-  // 首次心跳
-  aeoHeartbeat().then((uuid) => {
-    if (uuid) {
-      // 心跳成功后启动任务订阅
-      aeoStartTaskSubscription();
-    }
+  // 自动同步登录态（从 Web localStorage）
+  autoSyncAeoToken({ openLoginIfMissing: false }).then(() => {
+    // 登录成功后首次心跳
+    aeoHeartbeat().then((uuid) => {
+      if (uuid) {
+        // 心跳成功后启动任务订阅
+        aeoStartTaskSubscription();
+      }
+    });
   });
 
   // 定期心跳
