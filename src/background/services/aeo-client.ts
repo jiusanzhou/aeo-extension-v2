@@ -44,6 +44,65 @@ interface AEOTaskReadyEvent {
   workerAccountId?: string;
 }
 
+// ================== 平台名映射 ==================
+
+/**
+ * AEO 后端平台名 → MultiPost 平台名
+ * 
+ * 当前 AEO 支持 9 个平台（见 apps/api/scripts/seed-all-builtins.ts）
+ * MultiPost 覆盖其中 4 个动态图文：toutiao/baijia/douyin/xiaohongshu
+ * 其余 5 个（sohu/netease/sogou/dayu/nano360）MultiPost 仅支持视频或不支持
+ */
+const PLATFORM_MAP: Record<string, string> = {
+  // AEO 原生支持 + MultiPost 图文发布
+  xiaohongshu: "DYNAMIC_REDNOTE",
+  douyin: "DYNAMIC_DOUYIN",
+  toutiao: "DYNAMIC_TOUTIAO",
+  baijia: "DYNAMIC_BAIJIAHAO",
+  
+  // AEO 可扩展平台（MultiPost 支持但 AEO 后端需要加）
+  weibo: "DYNAMIC_WEIBO",
+  zhihu: "DYNAMIC_ZHIHU",
+  bilibili: "DYNAMIC_BILIBILI",
+  kuaishou: "DYNAMIC_KUAISHOU",
+  jike: "DYNAMIC_OKJIKE",
+  douban: "DYNAMIC_DOUBAN",
+  juejin: "DYNAMIC_JUEJIN",
+  
+  // 国际平台
+  x: "DYNAMIC_X",
+  linkedin: "DYNAMIC_LINKEDIN",
+  facebook: "DYNAMIC_FACEBOOK",
+  instagram: "DYNAMIC_INSTAGRAM",
+  threads: "DYNAMIC_THREADS",
+  reddit: "DYNAMIC_REDDIT",
+  bluesky: "DYNAMIC_BLUESKY",
+};
+
+/**
+ * MultiPost accountKey → AEO 平台名（反向映射）
+ */
+const ACCOUNT_KEY_TO_AEO_PLATFORM: Record<string, string> = {
+  rednote: "xiaohongshu",
+  douyin: "douyin",
+  toutiao: "toutiao",
+  baijiahao: "baijia",
+  weibo: "weibo",
+  zhihu: "zhihu",
+  bilibili: "bilibili",
+  kuaishou: "kuaishou",
+  okjike: "jike",
+  douban: "douban",
+  juejin: "juejin",
+  x: "x",
+  linkedin: "linkedin",
+  facebook: "facebook",
+  instagram: "instagram",
+  threads: "threads",
+  reddit: "reddit",
+  bluesky: "bluesky",
+};
+
 // ================== 工具函数 ==================
 
 async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -119,19 +178,25 @@ async function reportAccounts(workerUuid: string): Promise<void> {
     const platformInfos = await getPlatformInfos();
     const accounts: AEOWorkerAccount[] = platformInfos
       .filter((p) => p.accountInfo)
-      .map((p) => ({
-        platform: p.name,
-        platformUserId: p.accountInfo!.accountId,
-        displayName: p.accountInfo!.username,
-        avatarUrl: p.accountInfo!.avatarUrl,
-        identity: {
+      .map((p) => {
+        // 用 accountKey 映射到 AEO 平台名
+        const aeoPlatform = ACCOUNT_KEY_TO_AEO_PLATFORM[p.accountKey] || p.accountKey;
+        return {
+          platform: aeoPlatform,
           platformUserId: p.accountInfo!.accountId,
           displayName: p.accountInfo!.username,
           avatarUrl: p.accountInfo!.avatarUrl,
-        },
-        externalAccountId: p.accountInfo!.accountId,
-        isActive: true,
-      }));
+          identity: {
+            platformUserId: p.accountInfo!.accountId,
+            displayName: p.accountInfo!.username,
+            avatarUrl: p.accountInfo!.avatarUrl,
+          },
+          externalAccountId: p.accountInfo!.accountId,
+          isActive: true,
+        };
+      })
+      // 只上报在 AEO_PLATFORM 映射里的平台
+      .filter((a) => Object.values(ACCOUNT_KEY_TO_AEO_PLATFORM).includes(a.platform));
 
     if (accounts.length === 0) {
       console.log("[AEO] No accounts to report");
@@ -263,16 +328,24 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
   }
 
   // 3. 转换为 MultiPost SyncData
-  const platformInfo = infoMap[task.platform];
+  const multipostPlatform = PLATFORM_MAP[task.platform];
+  if (!multipostPlatform) {
+    await reportTaskEvent(task.taskId, workerUuid, "failed", {
+      error: `Platform not mapped: ${task.platform} (need to add to PLATFORM_MAP)`,
+    });
+    return;
+  }
+
+  const platformInfo = infoMap[multipostPlatform];
   if (!platformInfo) {
     await reportTaskEvent(task.taskId, workerUuid, "failed", {
-      error: `Unknown platform: ${task.platform}`,
+      error: `MultiPost platform not found: ${multipostPlatform}`,
     });
     return;
   }
 
   const syncData: SyncData = {
-    platforms: [{ name: task.platform, injectUrl: platformInfo.injectUrl }],
+    platforms: [{ name: multipostPlatform, injectUrl: platformInfo.injectUrl }],
     isAutoPublish: true,
     data: {
       title: taskDetail.title || "",
