@@ -1,15 +1,15 @@
 {
   "extensionName": {
-    "message": "MultiPost",
-    "description": "Multipost Extension"
+    "message": "AEO Helper",
+    "description": "AEO Helper Extension"
   },
   "extensionDisplayName": {
-    "message": "MultiPost",
-    "description": "Multipost Extension"
+    "message": "AEO Helper",
+    "description": "AEO Helper Extension"
   },
   "extensionDescription": {
-    "message": "MultiPost 是一个帮助你在多个平台同步发布内容的工具。",
-    "description": "Multipost 是一个帮助你在多个平台同步发布内容的工具。"
+    "message": "AEO 助手 — 插件化多平台发文自动填充，Cookie 本地加密，发布留痕。",
+    "description": "AEO 助手 — 插件化多平台发文自动填充，Cookie 本地加密，发布留痕。"
   },
   "gDynamic": {
     "message": "动态",
