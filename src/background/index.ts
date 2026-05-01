@@ -8,6 +8,7 @@ import {
   getPlatformInfos,
 } from "~sync/common";
 import QuantumEntanglementKeepAlive from "../utils/keep-alive";
+import { aeoInit } from "./services/aeo-client";
 import { linkExtensionMessageHandler, starter } from "./services/api";
 import {
   addTabsManagerMessages,
@@ -143,6 +144,10 @@ const defaultMessageHandler = (request, _sender, sendResponse) => {
 };
 starter(1000 * 30);
 // Message Handler || 消息处理器 || END
+
+// AEO Integration || AEO 集成 || START
+aeoInit();
+// AEO Integration || AEO 集成 || END
 
 // Keep Alive || 保活机制 || START
 const quantumKeepAlive = new QuantumEntanglementKeepAlive();
