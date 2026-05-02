@@ -57,7 +57,7 @@ chrome.webNavigation?.onCompleted.addListener(async (details) => {
   if (details.frameId !== 0) return;
   const apiKey = await storage.get<string>("aeoApiKey");
   if (apiKey) return; // 已有 token，不打扰
-  const frontUrl = "https://aeo.wuma.dev"; // AEO 前端
+  const frontUrl = "https://aeo.wencai.app"; // AEO 前端
   if (!details.url.startsWith(frontUrl)) return;
   // 给页面 1.5s 让 React 把 token 写进 localStorage
   setTimeout(() => {

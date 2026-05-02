@@ -18,7 +18,7 @@ const storage = new Storage({ area: "local" });
 
 // AEO 后端地址（通过 PLASMO_PUBLIC_AEO_API_BASE 环境变量配置）
 const AEO_API_BASE =
-  (typeof process !== "undefined" && process.env?.PLASMO_PUBLIC_AEO_API_BASE) || "https://aeo-api.wuma.dev";
+  (typeof process !== "undefined" && process.env?.PLASMO_PUBLIC_AEO_API_BASE) || "https://aeo-api.wencai.app";
 
 // ================== 类型定义 ==================
 

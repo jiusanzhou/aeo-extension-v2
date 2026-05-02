@@ -15,7 +15,7 @@ const storage = new Storage({ area: "local" });
 
 const AEO_API_BASE =
   (typeof process !== "undefined" && process.env?.PLASMO_PUBLIC_AEO_API_BASE) ||
-  "https://aeo-api.wuma.dev";
+  "https://aeo-api.wencai.app";
 
 interface MeResponse {
   user: {
@@ -29,7 +29,7 @@ interface MeResponse {
  * 推导 AEO 前端 URL
  */
 function aeoFrontendUrl(apiBaseUrl: string): string {
-  if (!apiBaseUrl) return "https://aeo.wuma.dev";
+  if (!apiBaseUrl) return "https://aeo.wencai.app";
   if (apiBaseUrl.includes("localhost")) return "http://localhost:5173";
   return apiBaseUrl.replace("aeo-api", "aeo").replace("/api", "");
 }
