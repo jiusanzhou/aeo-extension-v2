@@ -1,14 +1,14 @@
 import { Storage } from "@plasmohq/storage";
 import { useStorage } from "@plasmohq/storage/hook";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { refreshAccountInfoMap } from "~sync/account";
 import "~style.css";
 
 const storage = new Storage({ area: "local" });
 
 const AEO_API_BASE =
-  (typeof process !== "undefined" && process.env?.PLASMO_PUBLIC_AEO_API_BASE) ||
-  "https://aeo-api.wencai.app";
+  (typeof process !== "undefined" && process.env?.PLASMO_PUBLIC_AEO_API_BASE) || "https://aeo-api.wencai.app";
 
 /**
  * 推导 AEO 前端登录 URL
@@ -77,8 +77,7 @@ function IndexPopup() {
   return (
     <div
       style={{
-        fontFamily:
-          "-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif",
         fontSize: 13,
         padding: 12,
         width: 420,
@@ -115,9 +114,7 @@ function IndexPopup() {
         <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 8 }}>
           连接 AEO 后端用于同步发布任务队列。基于 MultiPost 的 50+ 平台适配器。
         </div>
-        <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
-          API 地址
-        </div>
+        <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>API 地址</div>
         <input
           value={AEO_API_BASE}
           disabled
@@ -224,14 +221,18 @@ function IndexPopup() {
               </button>
             </div>
 
-            <details
-              style={{ marginTop: 10, fontSize: 11, color: "#6b7280" }}
-              open={showAdvanced}>
+            <details style={{ marginTop: 10, fontSize: 11, color: "#6b7280" }} open={showAdvanced}>
               <summary
                 style={{ cursor: "pointer" }}
                 onClick={(e) => {
                   e.preventDefault();
                   setShowAdvanced(!showAdvanced);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setShowAdvanced(!showAdvanced);
+                  }
                 }}>
                 手动粘贴 Token（高级）
               </summary>
@@ -284,6 +285,9 @@ function IndexPopup() {
         )}
       </div>
 
+      {/* 平台账号卡片 */}
+      {loggedIn && <PlatformAccountsCard />}
+
       <div
         style={{
           fontSize: 10,
@@ -293,6 +297,226 @@ function IndexPopup() {
         }}>
         基于 MultiPost 开源项目 · v{chrome.runtime.getManifest().version}
       </div>
+    </div>
+  );
+}
+
+/**
+ * 平台账号卡片 — 展示启用平台 + 登录账号状态
+ */
+function PlatformAccountsCard() {
+  const [accountsSnapshot, setAccountsSnapshot] = useState<
+    Array<{
+      platform: string;
+      status: "logged_in" | "failed";
+      accountInfo?: { accountId: string; username: string; avatarUrl?: string };
+    }>
+  >([]);
+  const [refreshedAt, setRefreshedAt] = useState<number>(0);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadSnapshot = async () => {
+    const snapshot = await storage.get<typeof accountsSnapshot>("aeoAccountsSnapshot");
+    const ts = await storage.get<number>("aeoAccountsRefreshedAt");
+    setAccountsSnapshot(snapshot || []);
+    setRefreshedAt(ts || 0);
+  };
+
+  useEffect(() => {
+    loadSnapshot();
+    // 每 5 秒轮询一次（心跳会更新 snapshot）
+    const interval = setInterval(loadSnapshot, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      // 触发 background 的 heartbeat（会刷新账号）
+      await chrome.runtime.sendMessage({ type: "TRIGGER_HEARTBEAT" });
+      // 等 2 秒让 background 完成刷新
+      await new Promise((r) => setTimeout(r, 2000));
+      await loadSnapshot();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const loggedInCount = accountsSnapshot.filter((a) => a.status === "logged_in").length;
+  const failedCount = accountsSnapshot.filter((a) => a.status === "failed").length;
+
+  return (
+    <div
+      style={{
+        background: "white",
+        borderRadius: 8,
+        padding: 12,
+        marginBottom: 8,
+        boxShadow: "0 1px 2px rgba(0, 0, 0, 0.04)",
+      }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#374151" }}>
+          平台账号 ({loggedInCount}/{accountsSnapshot.length})
+        </h3>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={refreshing}
+          style={{
+            padding: "4px 8px",
+            background: refreshing ? "#e5e7eb" : "#10b981",
+            color: refreshing ? "#6b7280" : "white",
+            border: 0,
+            borderRadius: 5,
+            fontSize: 11,
+            cursor: refreshing ? "not-allowed" : "pointer",
+          }}>
+          {refreshing ? "刷新中..." : "🔄 刷新"}
+        </button>
+      </div>
+
+      {refreshedAt > 0 && (
+        <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 8 }}>
+          上次刷新: {new Date(refreshedAt).toLocaleTimeString("zh-CN")}
+        </div>
+      )}
+
+      {accountsSnapshot.length === 0 ? (
+        <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "center", padding: "12px 0" }}>
+          暂无启用平台，请在后台配置 worker_enabled_platforms
+        </div>
+      ) : (
+        <div>
+          {accountsSnapshot.map((acc) => {
+            const meta = refreshAccountInfoMap[acc.platform];
+            const platformLabel = meta?.platformName || acc.platform;
+            const faviconUrl = meta?.faviconUrl;
+
+            return (
+              <div
+                key={acc.platform}
+                style={{
+                  padding: "8px 0",
+                  borderTop: "1px solid #f3f4f6",
+                }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: acc.status === "logged_in" ? "#10b981" : "#d1d5db",
+                      flexShrink: 0,
+                    }}
+                  />
+                  {faviconUrl && (
+                    <img
+                      src={faviconUrl}
+                      alt=""
+                      style={{ width: 16, height: 16, borderRadius: 3, objectFit: "contain" }}
+                    />
+                  )}
+                  <span style={{ fontWeight: 600, fontSize: 12, color: "#374151" }}>{platformLabel}</span>
+                </div>
+
+                {acc.status === "logged_in" && acc.accountInfo ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "6px 8px",
+                      background: "#f0fdf4",
+                      borderLeft: "3px solid #10b981",
+                      borderRadius: 4,
+                    }}>
+                    {acc.accountInfo.avatarUrl ? (
+                      <img
+                        src={acc.accountInfo.avatarUrl}
+                        alt=""
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: "50%",
+                          objectFit: "cover",
+                          flexShrink: 0,
+                        }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: "50%",
+                          background: "#e5e7eb",
+                          flexShrink: 0,
+                        }}
+                      />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 500,
+                          color: "#065f46",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}>
+                        {acc.accountInfo.username}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 9,
+                          color: "#6b7280",
+                          fontFamily: "'SF Mono', Monaco, monospace",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}>
+                        UID: {acc.accountInfo.accountId}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      padding: "6px 8px",
+                      background: "#f9fafb",
+                      borderRadius: 4,
+                      fontSize: 11,
+                      color: "#6b7280",
+                    }}>
+                    未检测到登录 —{" "}
+                    <a
+                      href={meta?.homeUrl || "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: "#0ea5e9", textDecoration: "none" }}>
+                      打开登录页
+                    </a>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {failedCount > 0 && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: 8,
+            background: "#fffbeb",
+            border: "1px solid #fde68a",
+            borderRadius: 6,
+            fontSize: 11,
+            color: "#92400e",
+          }}>
+          ⚠️ {failedCount} 个平台未登录，请先登录对应平台后点击刷新
+        </div>
+      )}
     </div>
   );
 }

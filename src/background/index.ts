@@ -8,8 +8,8 @@ import {
   getPlatformInfos,
 } from "~sync/common";
 import QuantumEntanglementKeepAlive from "../utils/keep-alive";
-import { aeoInit } from "./services/aeo-client";
 import { autoSyncAeoToken } from "./services/aeo-auth";
+import { aeoHeartbeat, aeoInit } from "./services/aeo-client";
 import { linkExtensionMessageHandler, starter } from "./services/api";
 import {
   addTabsManagerMessages,
@@ -47,9 +47,7 @@ chrome.runtime.onInstalled.addListener((object) => {
 
 chrome.runtime.onStartup?.addListener(() => {
   // AEO: 浏览器启动时自动同步
-  autoSyncAeoToken({ openLoginIfMissing: false }).catch((e) =>
-    console.warn("[AEO] Startup auto-sync failed", e),
-  );
+  autoSyncAeoToken({ openLoginIfMissing: false }).catch((e) => console.warn("[AEO] Startup auto-sync failed", e));
 });
 
 // AEO: 监听前端 tab 完成加载 → 用户刚登录完，立即同步
@@ -61,9 +59,7 @@ chrome.webNavigation?.onCompleted.addListener(async (details) => {
   if (!details.url.startsWith(frontUrl)) return;
   // 给页面 1.5s 让 React 把 token 写进 localStorage
   setTimeout(() => {
-    autoSyncAeoToken({ openLoginIfMissing: false }).catch((e) =>
-      console.warn("[AEO] Post-login auto-sync failed", e),
-    );
+    autoSyncAeoToken({ openLoginIfMissing: false }).catch((e) => console.warn("[AEO] Post-login auto-sync failed", e));
   }, 1500);
 });
 
@@ -89,6 +85,13 @@ let currentPublishPopup: chrome.windows.Window | null = null;
 const defaultMessageHandler = (request, _sender, sendResponse) => {
   if (request.action === "MULTIPOST_EXTENSION_CHECK_SERVICE_STATUS") {
     sendResponse({ extensionId: chrome.runtime.id });
+  }
+  // AEO: popup 触发手动刷新账号
+  if (request.type === "TRIGGER_HEARTBEAT") {
+    aeoHeartbeat()
+      .then((uuid) => sendResponse({ ok: true, uuid }))
+      .catch((e) => sendResponse({ ok: false, error: (e as Error).message }));
+    return true; // 异步响应
   }
   if (request.action === "MULTIPOST_EXTENSION_PUBLISH") {
     const data = request.data as SyncData;

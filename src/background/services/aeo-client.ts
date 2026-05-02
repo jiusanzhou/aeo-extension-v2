@@ -212,23 +212,35 @@ async function reportAccounts(workerUuid: string): Promise<void> {
 
     if (targetAccountKeys.length === 0) {
       console.log("[AEO] Empty whitelist, skip");
+      await storage.set("aeoAccountsSnapshot", []);
+      await storage.set("aeoAccountsRefreshedAt", Date.now());
       return;
     }
 
     console.log(`[AEO] Refreshing accounts for: ${targetAccountKeys.join(", ")}`);
 
     // 2. 串行刷新（并发请求各平台 API 容易触发反爬）
-    let loggedIn = 0;
-    let failed = 0;
+    const refreshResults: Array<{
+      platform: string;
+      status: "logged_in" | "failed";
+      accountInfo?: { accountId: string; username: string; avatarUrl?: string };
+    }> = [];
+
     for (const accountKey of targetAccountKeys) {
       try {
         const info = await refreshAccountInfo(accountKey);
-        if (info) loggedIn++;
-        else failed++;
+        if (info) {
+          refreshResults.push({ platform: accountKey, status: "logged_in", accountInfo: info });
+        } else {
+          refreshResults.push({ platform: accountKey, status: "failed" });
+        }
       } catch {
-        failed++;
+        refreshResults.push({ platform: accountKey, status: "failed" });
       }
     }
+
+    const loggedIn = refreshResults.filter((r) => r.status === "logged_in").length;
+    const failed = refreshResults.filter((r) => r.status === "failed").length;
     console.log(`[AEO] Account refresh: ${loggedIn} logged in, ${failed} failed/not-logged-in`);
 
     // 3. 收集已刷新成功的账号信息上报
@@ -252,6 +264,8 @@ async function reportAccounts(workerUuid: string): Promise<void> {
 
     if (accounts.length === 0) {
       console.log("[AEO] No accounts to report");
+      await storage.set("aeoAccountsSnapshot", refreshResults);
+      await storage.set("aeoAccountsRefreshedAt", Date.now());
       return;
     }
 
@@ -266,6 +280,9 @@ async function reportAccounts(workerUuid: string): Promise<void> {
     // 缓存 worker_account.id 列表 —— SSE 订阅时带上，后端据此过滤任务归属账号
     const accountIds = (reportRes.accounts || []).map((a) => a.id).filter(Boolean);
     await storage.set("aeoWorkerAccountIds", accountIds);
+    // 保存账号 snapshot 给 popup 用
+    await storage.set("aeoAccountsSnapshot", refreshResults);
+    await storage.set("aeoAccountsRefreshedAt", Date.now());
     console.log(
       `[AEO] Reported ${accounts.length} accounts: ${accounts.map((a) => a.platform).join(", ")} (ids=${accountIds.length})`,
     );
