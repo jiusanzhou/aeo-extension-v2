@@ -15,7 +15,7 @@ const storage = new Storage({ area: "local" });
 
 const AEO_API_BASE =
   (typeof process !== "undefined" && process.env?.PLASMO_PUBLIC_AEO_API_BASE) ||
-  "https://aeo-ex9.pages.dev";
+  "https://aeo-api.wuma.dev";
 
 interface MeResponse {
   user: {
@@ -29,7 +29,7 @@ interface MeResponse {
  * 推导 AEO 前端 URL
  */
 function aeoFrontendUrl(apiBaseUrl: string): string {
-  if (!apiBaseUrl) return "https://aeo-ex9.pages.dev";
+  if (!apiBaseUrl) return "https://aeo.wuma.dev";
   if (apiBaseUrl.includes("localhost")) return "http://localhost:5173";
   return apiBaseUrl.replace("aeo-api", "aeo").replace("/api", "");
 }
@@ -100,9 +100,11 @@ export async function autoSyncAeoToken(
         
         // 通知用户
         try {
+          // Plasmo 会在 build 时把 icon48.plasmo.xxx.png 转换
+          // 直接用 manifest 里的 default_icon 路径
           chrome.notifications?.create({
             type: "basic",
-            iconUrl: chrome.runtime.getURL("icon48.plasmo.png"),
+            iconUrl: "icon48.plasmo.png",
             title: "AEO Helper",
             message: `已自动登录：${me.user.email}`,
           });

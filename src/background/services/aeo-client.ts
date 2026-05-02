@@ -18,7 +18,7 @@ const storage = new Storage({ area: "local" });
 
 // AEO 后端地址（通过 PLASMO_PUBLIC_AEO_API_BASE 环境变量配置）
 const AEO_API_BASE =
-  (typeof process !== "undefined" && process.env?.PLASMO_PUBLIC_AEO_API_BASE) || "https://aeo-ex9.pages.dev";
+  (typeof process !== "undefined" && process.env?.PLASMO_PUBLIC_AEO_API_BASE) || "https://aeo-api.wuma.dev";
 
 // ================== 类型定义 ==================
 
@@ -48,29 +48,42 @@ interface AEOTaskReadyEvent {
 
 /**
  * AEO 后端平台名 → MultiPost 平台名
- * 
- * 当前 AEO 支持 9 个平台（见 apps/api/scripts/seed-all-builtins.ts）
- * MultiPost 覆盖其中 4 个动态图文：toutiao/baijia/douyin/xiaohongshu
- * 其余 5 个（sohu/netease/sogou/dayu/nano360）MultiPost 仅支持视频或不支持
+ *
+ * 账号上报只用 AEO 平台名（不带前缀），任务下发时才按内容类型选 MultiPost 键。
+ * 此映射给「图文动态任务」用，优先 DYNAMIC，缺失时回退到 VIDEO/ARTICLE。
  */
 const PLATFORM_MAP: Record<string, string> = {
-  // AEO 原生支持 + MultiPost 图文发布
+  // 动态原生
   xiaohongshu: "DYNAMIC_REDNOTE",
   douyin: "DYNAMIC_DOUYIN",
+  x: "DYNAMIC_X",
+  bilibili: "DYNAMIC_BILIBILI",
   toutiao: "DYNAMIC_TOUTIAO",
   baijia: "DYNAMIC_BAIJIAHAO",
-  
-  // AEO 可扩展平台（MultiPost 支持但 AEO 后端需要加）
   weibo: "DYNAMIC_WEIBO",
   zhihu: "DYNAMIC_ZHIHU",
-  bilibili: "DYNAMIC_BILIBILI",
   kuaishou: "DYNAMIC_KUAISHOU",
   jike: "DYNAMIC_OKJIKE",
   douban: "DYNAMIC_DOUBAN",
   juejin: "DYNAMIC_JUEJIN",
-  
-  // 国际平台
-  x: "DYNAMIC_X",
+
+  // 仅 VIDEO 类型（无 DYNAMIC 版本）
+  tiktok: "VIDEO_TIKTOK",
+  qie: "VIDEO_QIE",
+  chejiahao: "VIDEO_CHEJIAHAO",
+  dewu: "VIDEO_DEWU",
+  vivovideo: "VIDEO_VIVOVIDEO",
+  alipay: "VIDEO_ALIPAY",
+
+  // 仅 VIDEO（也可走文章类型，按需切换）
+  yiche: "VIDEO_YICHE",
+  sohu: "VIDEO_SOHU",
+  netease: "VIDEO_NETEASE",
+  dayu: "VIDEO_DAYU",
+  yidian: "VIDEO_YIDIAN",
+  pinduoduo: "VIDEO_PINDUODUO",
+
+  // 国际平台（动态）
   linkedin: "DYNAMIC_LINKEDIN",
   facebook: "DYNAMIC_FACEBOOK",
   instagram: "DYNAMIC_INSTAGRAM",
@@ -83,18 +96,33 @@ const PLATFORM_MAP: Record<string, string> = {
  * MultiPost accountKey → AEO 平台名（反向映射）
  */
 const ACCOUNT_KEY_TO_AEO_PLATFORM: Record<string, string> = {
+  // v2 实际支持的 17 个平台（按 src/sync/account.ts）
   rednote: "xiaohongshu",
   douyin: "douyin",
+  x: "x",
+  tiktok: "tiktok",
+  bilibili: "bilibili",
+  qie: "qie",
+  chejiahao: "chejiahao",
+  dewu: "dewu",
+  yiche: "yiche",
+  sohu: "sohu",
+  netease: "netease",
+  dayu: "dayu",
+  alipay: "alipay",
+  yidian: "yidian",
+  pinduoduo: "pinduoduo",
+  vivovideo: "vivovideo",
+  
+  // AEO 可扩展平台（v2 暂未实现账号识别）
   toutiao: "toutiao",
   baijiahao: "baijia",
   weibo: "weibo",
   zhihu: "zhihu",
-  bilibili: "bilibili",
   kuaishou: "kuaishou",
   okjike: "jike",
   douban: "douban",
   juejin: "juejin",
-  x: "x",
   linkedin: "linkedin",
   facebook: "facebook",
   instagram: "instagram",
