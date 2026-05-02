@@ -255,11 +255,20 @@ async function reportAccounts(workerUuid: string): Promise<void> {
       return;
     }
 
-    await apiRequest<{ reported: number }>(`/v1/workers/${workerUuid}/accounts/report`, {
+    const reportRes = await apiRequest<{
+      reported: number;
+      accounts: Array<{ id: string; platform: string; platformUserId: string }>;
+    }>(`/v1/workers/${workerUuid}/accounts/report`, {
       method: "POST",
       body: JSON.stringify({ accounts }),
     });
-    console.log(`[AEO] Reported ${accounts.length} accounts: ${accounts.map((a) => a.platform).join(", ")}`);
+
+    // 缓存 worker_account.id 列表 —— SSE 订阅时带上，后端据此过滤任务归属账号
+    const accountIds = (reportRes.accounts || []).map((a) => a.id).filter(Boolean);
+    await storage.set("aeoWorkerAccountIds", accountIds);
+    console.log(
+      `[AEO] Reported ${accounts.length} accounts: ${accounts.map((a) => a.platform).join(", ")} (ids=${accountIds.length})`,
+    );
   } catch (error) {
     console.warn("[AEO] Report accounts failed:", (error as Error).message);
   }
@@ -280,14 +289,25 @@ export async function aeoStartTaskSubscription(): Promise<void> {
 
   const apiKey = await storage.get<string>("aeoApiKey");
   const workerUuid = await storage.get<string>("aeoWorkerUuid");
+  const accountIds = await storage.get<string[]>("aeoWorkerAccountIds");
   if (!apiKey || !workerUuid) {
     console.log("[AEO] Missing credentials, cannot start task subscription");
     return;
   }
 
-  const url = `${AEO_API_BASE}/v1/publish/tasks/stream?workerId=${encodeURIComponent(workerUuid)}&workerType=extension`;
+  const params = new URLSearchParams({
+    workerId: workerUuid,
+    workerType: "extension",
+  });
+  if (accountIds && accountIds.length > 0) {
+    params.set("accountIds", accountIds.join(","));
+  }
+
+  const url = `${AEO_API_BASE}/v1/publish/tasks/stream?${params.toString()}`;
   const controller = new AbortController();
   currentSSE = { abort: () => controller.abort() };
+
+  console.log(`[AEO] Starting task subscription (workerId=${workerUuid}, accountIds=${accountIds?.length || 0})`);
 
   try {
     const response = await fetch(url, {
@@ -415,9 +435,47 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
   try {
     await reportTaskEvent(task.taskId, workerUuid, "step", { step: "open_editor" });
     await createTabsForPlatforms(syncData);
-    await reportTaskEvent(task.taskId, workerUuid, "completed", {
-      platform: task.platform,
-    });
+
+    // 监听 tab URL 变化 — 小红书发布成功后会跳转到 /explore/xxxxx
+    // 其他平台类似（抖音 /video/xxx，B站 /video/BVxxx 等）
+    const publishedUrlPatterns = [
+      /xiaohongshu\.com\/explore\/[a-f0-9]+/i,
+      /douyin\.com\/video\/\d+/i,
+      /bilibili\.com\/video\/BV[a-zA-Z0-9]+/i,
+      /x\.com\/[^/]+\/status\/\d+/i,
+    ];
+
+    // 30 秒超时 — 如果用户没点发布或者卡住了，上报 failed
+    const timeoutMs = 30 * 1000;
+    const startTime = Date.now();
+
+    const checkPublished = setInterval(async () => {
+      const tabs = await chrome.tabs.query({});
+      for (const tab of tabs) {
+        if (!tab.url) continue;
+        for (const pattern of publishedUrlPatterns) {
+          if (pattern.test(tab.url)) {
+            clearInterval(checkPublished);
+            // 调专用的 publish-detected 接口（带 publishedUrl）
+            await apiRequest(`/v1/publish/tasks/${task.taskId}/publish-detected`, {
+              method: "POST",
+              body: JSON.stringify({ publishedUrl: tab.url }),
+            });
+            console.log(`[AEO] Task ${task.taskId} published: ${tab.url}`);
+            return;
+          }
+        }
+      }
+
+      // 超时检测
+      if (Date.now() - startTime > timeoutMs) {
+        clearInterval(checkPublished);
+        await reportTaskEvent(task.taskId, workerUuid, "failed", {
+          error: "Publish timeout (30s) — user may have cancelled or page stuck",
+        });
+        console.warn(`[AEO] Task ${task.taskId} timeout`);
+      }
+    }, 2000); // 每 2 秒检查一次
   } catch (error) {
     await reportTaskEvent(task.taskId, workerUuid, "failed", {
       error: (error as Error).message,
@@ -447,6 +505,8 @@ async function reportTaskEvent(
 
 // ================== 初始化 ==================
 
+let lastAccountIdsHash = "";
+
 /**
  * 初始化 AEO 客户端
  * 启动心跳（每 30 秒）+ SSE 任务订阅
@@ -457,16 +517,33 @@ export function aeoInit(): void {
   // 自动同步登录态（从 Web localStorage）
   autoSyncAeoToken({ openLoginIfMissing: false }).then(() => {
     // 登录成功后首次心跳
-    aeoHeartbeat().then((uuid) => {
+    aeoHeartbeat().then(async (uuid) => {
       if (uuid) {
         // 心跳成功后启动任务订阅
+        const accountIds = await storage.get<string[]>("aeoWorkerAccountIds");
+        lastAccountIdsHash = (accountIds || []).sort().join(",");
         aeoStartTaskSubscription();
       }
     });
   });
 
-  // 定期心跳
-  setInterval(() => {
-    aeoHeartbeat();
+  // 定期心跳 + 账号变更检测
+  setInterval(async () => {
+    const uuid = await aeoHeartbeat();
+    if (uuid) {
+      // 检查账号列表是否变化（登录/登出）
+      const accountIds = await storage.get<string[]>("aeoWorkerAccountIds");
+      const currentHash = (accountIds || []).sort().join(",");
+      if (currentHash !== lastAccountIdsHash) {
+        console.log("[AEO] Account list changed, reconnecting SSE...");
+        lastAccountIdsHash = currentHash;
+        // 断开旧连接，重新订阅（带新 accountIds）
+        if (currentSSE) {
+          currentSSE.abort();
+          currentSSE = null;
+        }
+        aeoStartTaskSubscription();
+      }
+    }
   }, 30 * 1000);
 }
