@@ -11,6 +11,7 @@
  */
 
 import { Storage } from "@plasmohq/storage";
+import { refreshAllAccountInfo } from "~sync/account";
 import { type SyncData, createTabsForPlatforms, getPlatformInfos, infoMap } from "~sync/common";
 import { autoSyncAeoToken } from "./aeo-auth";
 
@@ -203,6 +204,13 @@ export async function aeoHeartbeat(): Promise<string | null> {
 
 async function reportAccounts(workerUuid: string): Promise<void> {
   try {
+    // 先主动刷新所有平台账号信息（MultiPost 的 storage 默认是空的）
+    console.log("[AEO] Refreshing account info from all platforms...");
+    const refreshResult = await refreshAllAccountInfo();
+    const loggedInCount = Object.keys(refreshResult.accounts).length;
+    const failedCount = Object.keys(refreshResult.errors).length;
+    console.log(`[AEO] Account refresh: ${loggedInCount} logged in, ${failedCount} failed/not-logged-in`);
+
     const platformInfos = await getPlatformInfos();
     const accounts: AEOWorkerAccount[] = platformInfos
       .filter((p) => p.accountInfo)
