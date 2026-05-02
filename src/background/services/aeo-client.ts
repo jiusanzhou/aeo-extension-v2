@@ -48,12 +48,18 @@ interface AEOTaskReadyEvent {
 // ================== 平台名映射 ==================
 
 /**
- * AEO 后端平台名 → MultiPost 平台名
+ * 任务下发时的平台名映射。
  *
- * 账号上报只用 AEO 平台名（不带前缀），任务下发时才按内容类型选 MultiPost 键。
- * 此映射给「图文动态任务」用，优先 DYNAMIC，缺失时回退到 VIDEO/ARTICLE。
+ * AEO 后端发布任务的 task.platform 是 AEO 业务平台名（xiaohongshu/zhihu/...），
+ * MultiPost 发布需要的是完整 platform key（DYNAMIC_REDNOTE/ARTICLE_ZHIHU/...）。
+ * 此 map 仅用于任务下发时查表。
+ *
+ * ⚠️ 注意与账号上报区分：
+ *   - 账号上报 / 白名单 / worker_accounts.platform 都是 MultiPost accountKey
+ *     （rednote/douyin/...），不走这个映射
+ *   - 只有任务下发场景（task.platform → MultiPost SyncData）用这个
  */
-const PLATFORM_MAP: Record<string, string> = {
+const AEO_PLATFORM_TO_MULTIPOST: Record<string, string> = {
   // 动态原生
   xiaohongshu: "DYNAMIC_REDNOTE",
   douyin: "DYNAMIC_DOUYIN",
@@ -68,15 +74,13 @@ const PLATFORM_MAP: Record<string, string> = {
   douban: "DYNAMIC_DOUBAN",
   juejin: "DYNAMIC_JUEJIN",
 
-  // 仅 VIDEO 类型（无 DYNAMIC 版本）
+  // 仅 VIDEO 类型
   tiktok: "VIDEO_TIKTOK",
   qie: "VIDEO_QIE",
   chejiahao: "VIDEO_CHEJIAHAO",
   dewu: "VIDEO_DEWU",
   vivovideo: "VIDEO_VIVOVIDEO",
   alipay: "VIDEO_ALIPAY",
-
-  // 仅 VIDEO（也可走文章类型，按需切换）
   yiche: "VIDEO_YICHE",
   sohu: "VIDEO_SOHU",
   netease: "VIDEO_NETEASE",
@@ -84,7 +88,7 @@ const PLATFORM_MAP: Record<string, string> = {
   yidian: "VIDEO_YIDIAN",
   pinduoduo: "VIDEO_PINDUODUO",
 
-  // 国际平台（动态）
+  // 国际平台
   linkedin: "DYNAMIC_LINKEDIN",
   facebook: "DYNAMIC_FACEBOOK",
   instagram: "DYNAMIC_INSTAGRAM",
@@ -93,62 +97,15 @@ const PLATFORM_MAP: Record<string, string> = {
   bluesky: "DYNAMIC_BLUESKY",
 };
 
-/**
- * MultiPost accountKey → AEO 平台名（反向映射）
- */
-const ACCOUNT_KEY_TO_AEO_PLATFORM: Record<string, string> = {
-  // v2 实际支持的 17 个平台（按 src/sync/account.ts）
-  rednote: "xiaohongshu",
-  douyin: "douyin",
-  x: "x",
-  tiktok: "tiktok",
-  bilibili: "bilibili",
-  qie: "qie",
-  chejiahao: "chejiahao",
-  dewu: "dewu",
-  yiche: "yiche",
-  sohu: "sohu",
-  netease: "netease",
-  dayu: "dayu",
-  alipay: "alipay",
-  yidian: "yidian",
-  pinduoduo: "pinduoduo",
-  vivovideo: "vivovideo",
-
-  // AEO 可扩展平台（v2 暂未实现账号识别）
-  toutiao: "toutiao",
-  baijiahao: "baijia",
-  weibo: "weibo",
-  zhihu: "zhihu",
-  kuaishou: "kuaishou",
-  okjike: "jike",
-  douban: "douban",
-  juejin: "juejin",
-  linkedin: "linkedin",
-  facebook: "facebook",
-  instagram: "instagram",
-  threads: "threads",
-  reddit: "reddit",
-  bluesky: "bluesky",
-};
-
-/**
- * AEO 平台名 → MultiPost accountKey（ACCOUNT_KEY_TO_AEO_PLATFORM 的反向）
- * 用于根据后端下发的白名单反查需要刷新哪些 MultiPost accountKey。
- */
-const AEO_PLATFORM_TO_ACCOUNT_KEY: Record<string, string> = Object.fromEntries(
-  Object.entries(ACCOUNT_KEY_TO_AEO_PLATFORM).map(([k, v]) => [v, k]),
-);
-
 // ================== 全局平台白名单 ==================
 
 const ENABLED_PLATFORMS_STORAGE_KEY = "aeoEnabledPlatforms";
 const ENABLED_PLATFORMS_FETCHED_AT_KEY = "aeoEnabledPlatformsFetchedAt";
 const ENABLED_PLATFORMS_TTL_MS = 10 * 60 * 1000; // 10 分钟缓存
-const DEFAULT_ENABLED_PLATFORMS = ["xiaohongshu"]; // 后端不可达时的兜底
+const DEFAULT_ENABLED_PLATFORMS = ["rednote"]; // 后端不可达时的兜底（MultiPost accountKey）
 
 /**
- * 拉取后端下发的全局平台白名单。
+ * 拉取后端下发的全局平台白名单（MultiPost accountKey 列表，如 ["rednote", "douyin"]）。
  * 10 分钟 TTL 缓存，避免每次心跳都打接口。
  */
 async function getEnabledPlatforms(forceRefresh = false): Promise<string[]> {
@@ -250,22 +207,17 @@ export async function aeoHeartbeat(): Promise<string | null> {
 
 async function reportAccounts(workerUuid: string): Promise<void> {
   try {
-    // 1. 拉取后端下发的全局平台白名单（带 10min 缓存）
-    const enabledAeoPlatforms = await getEnabledPlatforms();
-
-    // 2. 反向映射 AEO 平台名 → MultiPost accountKey，仅刷新白名单内的平台
-    const targetAccountKeys = enabledAeoPlatforms
-      .map((aeo) => AEO_PLATFORM_TO_ACCOUNT_KEY[aeo])
-      .filter((k): k is string => !!k);
+    // 1. 拉取后端下发的全局平台白名单（MultiPost accountKey 列表）
+    const targetAccountKeys = await getEnabledPlatforms();
 
     if (targetAccountKeys.length === 0) {
-      console.log(`[AEO] No supported platforms in whitelist (${enabledAeoPlatforms.join(", ")}), skip`);
+      console.log("[AEO] Empty whitelist, skip");
       return;
     }
 
     console.log(`[AEO] Refreshing accounts for: ${targetAccountKeys.join(", ")}`);
 
-    // 3. 串行刷新（并发请求各平台 API 容易触发反爬，且只有 1-4 个不需要并行）
+    // 2. 串行刷新（并发请求各平台 API 容易触发反爬）
     let loggedIn = 0;
     let failed = 0;
     for (const accountKey of targetAccountKeys) {
@@ -279,29 +231,24 @@ async function reportAccounts(workerUuid: string): Promise<void> {
     }
     console.log(`[AEO] Account refresh: ${loggedIn} logged in, ${failed} failed/not-logged-in`);
 
-    // 4. 收集已刷新成功的账号信息上报
-    const enabledAeoSet = new Set(enabledAeoPlatforms);
+    // 3. 收集已刷新成功的账号信息上报
+    const enabledSet = new Set(targetAccountKeys);
     const platformInfos = await getPlatformInfos();
     const accounts: AEOWorkerAccount[] = platformInfos
-      .filter((p) => p.accountInfo)
-      .map((p) => {
-        const aeoPlatform = ACCOUNT_KEY_TO_AEO_PLATFORM[p.accountKey] || p.accountKey;
-        return {
-          platform: aeoPlatform,
+      .filter((p) => p.accountInfo && enabledSet.has(p.accountKey))
+      .map((p) => ({
+        platform: p.accountKey, // 直接用 MultiPost accountKey
+        platformUserId: p.accountInfo!.accountId,
+        displayName: p.accountInfo!.username,
+        avatarUrl: p.accountInfo!.avatarUrl,
+        identity: {
           platformUserId: p.accountInfo!.accountId,
           displayName: p.accountInfo!.username,
           avatarUrl: p.accountInfo!.avatarUrl,
-          identity: {
-            platformUserId: p.accountInfo!.accountId,
-            displayName: p.accountInfo!.username,
-            avatarUrl: p.accountInfo!.avatarUrl,
-          },
-          externalAccountId: p.accountInfo!.accountId,
-          isActive: true,
-        };
-      })
-      // 只上报白名单内的平台
-      .filter((a) => enabledAeoSet.has(a.platform));
+        },
+        externalAccountId: p.accountInfo!.accountId,
+        isActive: true,
+      }));
 
     if (accounts.length === 0) {
       console.log("[AEO] No accounts to report");
@@ -433,10 +380,10 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
   }
 
   // 3. 转换为 MultiPost SyncData
-  const multipostPlatform = PLATFORM_MAP[task.platform];
+  const multipostPlatform = AEO_PLATFORM_TO_MULTIPOST[task.platform];
   if (!multipostPlatform) {
     await reportTaskEvent(task.taskId, workerUuid, "failed", {
-      error: `Platform not mapped: ${task.platform} (need to add to PLATFORM_MAP)`,
+      error: `Platform not mapped: ${task.platform} (need to add to AEO_PLATFORM_TO_MULTIPOST)`,
     });
     return;
   }
