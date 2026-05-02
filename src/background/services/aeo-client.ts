@@ -11,7 +11,7 @@
  */
 
 import { Storage } from "@plasmohq/storage";
-import { refreshAllAccountInfo } from "~sync/account";
+import { refreshAccountInfo } from "~sync/account";
 import { type SyncData, createTabsForPlatforms, getPlatformInfos, infoMap } from "~sync/common";
 import { autoSyncAeoToken } from "./aeo-auth";
 
@@ -114,7 +114,7 @@ const ACCOUNT_KEY_TO_AEO_PLATFORM: Record<string, string> = {
   yidian: "yidian",
   pinduoduo: "pinduoduo",
   vivovideo: "vivovideo",
-  
+
   // AEO 可扩展平台（v2 暂未实现账号识别）
   toutiao: "toutiao",
   baijiahao: "baijia",
@@ -131,6 +131,52 @@ const ACCOUNT_KEY_TO_AEO_PLATFORM: Record<string, string> = {
   reddit: "reddit",
   bluesky: "bluesky",
 };
+
+/**
+ * AEO 平台名 → MultiPost accountKey（ACCOUNT_KEY_TO_AEO_PLATFORM 的反向）
+ * 用于根据后端下发的白名单反查需要刷新哪些 MultiPost accountKey。
+ */
+const AEO_PLATFORM_TO_ACCOUNT_KEY: Record<string, string> = Object.fromEntries(
+  Object.entries(ACCOUNT_KEY_TO_AEO_PLATFORM).map(([k, v]) => [v, k]),
+);
+
+// ================== 全局平台白名单 ==================
+
+const ENABLED_PLATFORMS_STORAGE_KEY = "aeoEnabledPlatforms";
+const ENABLED_PLATFORMS_FETCHED_AT_KEY = "aeoEnabledPlatformsFetchedAt";
+const ENABLED_PLATFORMS_TTL_MS = 10 * 60 * 1000; // 10 分钟缓存
+const DEFAULT_ENABLED_PLATFORMS = ["xiaohongshu"]; // 后端不可达时的兜底
+
+/**
+ * 拉取后端下发的全局平台白名单。
+ * 10 分钟 TTL 缓存，避免每次心跳都打接口。
+ */
+async function getEnabledPlatforms(forceRefresh = false): Promise<string[]> {
+  if (!forceRefresh) {
+    const cached = await storage.get<string[]>(ENABLED_PLATFORMS_STORAGE_KEY);
+    const fetchedAt = await storage.get<number>(ENABLED_PLATFORMS_FETCHED_AT_KEY);
+    if (cached && cached.length > 0 && fetchedAt && Date.now() - fetchedAt < ENABLED_PLATFORMS_TTL_MS) {
+      return cached;
+    }
+  }
+
+  try {
+    const { platforms } = await apiRequest<{ platforms: string[] }>("/v1/workers/enabled-platforms");
+    if (Array.isArray(platforms) && platforms.length > 0) {
+      await storage.set(ENABLED_PLATFORMS_STORAGE_KEY, platforms);
+      await storage.set(ENABLED_PLATFORMS_FETCHED_AT_KEY, Date.now());
+      console.log(`[AEO] Enabled platforms (from backend): ${platforms.join(", ")}`);
+      return platforms;
+    }
+  } catch (error) {
+    console.warn("[AEO] Failed to fetch enabled platforms, using cache/default:", (error as Error).message);
+  }
+
+  // 接口失败时：先用过期缓存，最后兜底默认值
+  const cached = await storage.get<string[]>(ENABLED_PLATFORMS_STORAGE_KEY);
+  if (cached && cached.length > 0) return cached;
+  return [...DEFAULT_ENABLED_PLATFORMS];
+}
 
 // ================== 工具函数 ==================
 
@@ -204,18 +250,41 @@ export async function aeoHeartbeat(): Promise<string | null> {
 
 async function reportAccounts(workerUuid: string): Promise<void> {
   try {
-    // 先主动刷新所有平台账号信息（MultiPost 的 storage 默认是空的）
-    console.log("[AEO] Refreshing account info from all platforms...");
-    const refreshResult = await refreshAllAccountInfo();
-    const loggedInCount = Object.keys(refreshResult.accounts).length;
-    const failedCount = Object.keys(refreshResult.errors).length;
-    console.log(`[AEO] Account refresh: ${loggedInCount} logged in, ${failedCount} failed/not-logged-in`);
+    // 1. 拉取后端下发的全局平台白名单（带 10min 缓存）
+    const enabledAeoPlatforms = await getEnabledPlatforms();
 
+    // 2. 反向映射 AEO 平台名 → MultiPost accountKey，仅刷新白名单内的平台
+    const targetAccountKeys = enabledAeoPlatforms
+      .map((aeo) => AEO_PLATFORM_TO_ACCOUNT_KEY[aeo])
+      .filter((k): k is string => !!k);
+
+    if (targetAccountKeys.length === 0) {
+      console.log(`[AEO] No supported platforms in whitelist (${enabledAeoPlatforms.join(", ")}), skip`);
+      return;
+    }
+
+    console.log(`[AEO] Refreshing accounts for: ${targetAccountKeys.join(", ")}`);
+
+    // 3. 串行刷新（并发请求各平台 API 容易触发反爬，且只有 1-4 个不需要并行）
+    let loggedIn = 0;
+    let failed = 0;
+    for (const accountKey of targetAccountKeys) {
+      try {
+        const info = await refreshAccountInfo(accountKey);
+        if (info) loggedIn++;
+        else failed++;
+      } catch {
+        failed++;
+      }
+    }
+    console.log(`[AEO] Account refresh: ${loggedIn} logged in, ${failed} failed/not-logged-in`);
+
+    // 4. 收集已刷新成功的账号信息上报
+    const enabledAeoSet = new Set(enabledAeoPlatforms);
     const platformInfos = await getPlatformInfos();
     const accounts: AEOWorkerAccount[] = platformInfos
       .filter((p) => p.accountInfo)
       .map((p) => {
-        // 用 accountKey 映射到 AEO 平台名
         const aeoPlatform = ACCOUNT_KEY_TO_AEO_PLATFORM[p.accountKey] || p.accountKey;
         return {
           platform: aeoPlatform,
@@ -231,8 +300,8 @@ async function reportAccounts(workerUuid: string): Promise<void> {
           isActive: true,
         };
       })
-      // 只上报在 AEO_PLATFORM 映射里的平台
-      .filter((a) => Object.values(ACCOUNT_KEY_TO_AEO_PLATFORM).includes(a.platform));
+      // 只上报白名单内的平台
+      .filter((a) => enabledAeoSet.has(a.platform));
 
     if (accounts.length === 0) {
       console.log("[AEO] No accounts to report");
@@ -243,7 +312,7 @@ async function reportAccounts(workerUuid: string): Promise<void> {
       method: "POST",
       body: JSON.stringify({ accounts }),
     });
-    console.log(`[AEO] Reported ${accounts.length} accounts`);
+    console.log(`[AEO] Reported ${accounts.length} accounts: ${accounts.map((a) => a.platform).join(", ")}`);
   } catch (error) {
     console.warn("[AEO] Report accounts failed:", (error as Error).message);
   }
