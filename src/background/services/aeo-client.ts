@@ -272,7 +272,7 @@ async function reportAccounts(workerUuid: string): Promise<void> {
           displayName: r.accountInfo.username,
           avatarUrl: r.accountInfo.avatarUrl,
         },
-        externalAccountId: r.accountInfo.accountId,
+        externalAccountId: undefined,
         isActive: true,
       }));
 
