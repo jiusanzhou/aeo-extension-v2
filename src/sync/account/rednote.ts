@@ -1,142 +1,73 @@
 import type { AccountInfo } from "~sync/common";
 
 export async function getRednoteAccountInfo(): Promise<AccountInfo | null> {
-  // 必须带 cookie 才能拿到登录态（Service Worker 默认 same-origin 不带跨域 cookie）
-  const response = await fetch("https://www.xiaohongshu.com/explore", {
-    credentials: "include",
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP错误，状态码: ${response.status}`);
-  }
-
-  const htmlText = await response.text();
-
-  // 根据调试输出，更精确地定位__INITIAL_STATE__的格式
-  let initialStateMatch = htmlText.match(/window\.__INITIAL_STATE__=(\{.+?\})(?:<\/script>|;)/s);
-
-  if (!initialStateMatch || !initialStateMatch[1]) {
-    // 尝试不带脚本标签结束的模式
-    initialStateMatch = htmlText.match(/window\.__INITIAL_STATE__=(\{.+?\})(;|\s|<)/s);
-  }
-
-  if (!initialStateMatch || !initialStateMatch[1]) {
-    // 尝试最宽松的模式
-    initialStateMatch = htmlText.match(/window\.__INITIAL_STATE__=(\{.+)/s);
-    if (initialStateMatch?.[1]) {
-      // 如果找到了开始但没有明确的结束，尝试手动寻找JSON的结束位置
-      let jsonStr = initialStateMatch[1];
-      // 尝试找到JSON对象的结束括号
-      let openBraces = 1; // 已经有一个开始的'{'
-      let closingIndex = -1;
-
-      for (let i = 1; i < jsonStr.length; i++) {
-        if (jsonStr[i] === "{") openBraces++;
-        if (jsonStr[i] === "}") openBraces--;
-
-        if (openBraces === 0) {
-          closingIndex = i;
-          break;
-        }
-      }
-
-      if (closingIndex !== -1) {
-        jsonStr = jsonStr.substring(0, closingIndex + 1);
-        initialStateMatch[1] = jsonStr;
-      }
-    }
-  }
-
-  if (!initialStateMatch || !initialStateMatch[1]) {
-    console.warn(
-      "[rednote] Failed to find __INITIAL_STATE__, HTML length:",
-      htmlText.length,
-      "first 200 chars:",
-      htmlText.slice(0, 200),
-    );
-    throw new Error("无法找到 __INITIAL_STATE__ 数据");
-  }
-
-  // 尝试在解析前清理JSON字符串
-  let jsonStr = initialStateMatch[1];
-
-  // 尝试处理可能的特殊字符或格式问题
-  // 1. 确保JSON字符串正确开始和结束
-  if (!jsonStr.startsWith("{") || !jsonStr.endsWith("}")) {
-    // 确保以{开始
-    if (!jsonStr.startsWith("{")) {
-      const startIndex = jsonStr.indexOf("{");
-      if (startIndex > 0) {
-        jsonStr = jsonStr.substring(startIndex);
-      }
-    }
-
-    // 确保以}结束
-    if (!jsonStr.endsWith("}")) {
-      const lastBrace = jsonStr.lastIndexOf("}");
-      if (lastBrace > 0) {
-        jsonStr = jsonStr.substring(0, lastBrace + 1);
-      }
-    }
-  }
-
-  // 2. 处理可能的意外字符
-  // 替换控制字符
-  jsonStr = jsonStr.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
-
-  // 3. 替换JSON中不合法的undefined值为null
-  jsonStr = jsonStr.replace(/:undefined,/g, ":null,");
-  jsonStr = jsonStr.replace(/:undefined}/g, ":null}");
-
-  // 4. 尝试解析JSON
-  let initialState;
+  // 主站后端 API (edith) — 直接返回 JSON，不用解析 HTML
   try {
-    // 尝试直接解析
-    initialState = JSON.parse(jsonStr);
-  } catch {
-    // 尝试更保守的方式，逐步替换可能的问题
-    // 1. 再次尝试替换所有可能的undefined值为null
-    jsonStr = jsonStr.replace(/undefined/g, "null");
-
-    try {
-      initialState = JSON.parse(jsonStr);
-    } catch {
-      // 2. 尝试手动构建最简单的对象
-      initialState = { manuallyParsed: true };
-
-      // 尝试提取一些关键字段
-      try {
-        const userMatch = jsonStr.match(/"user"\s*:\s*(\{.+?\}),\s*"/);
-        if (userMatch?.[1]) {
-          try {
-            const userJson = userMatch[1].replace(/undefined/g, "null");
-            initialState.user = JSON.parse(userJson);
-          } catch {
-            // 提取user字段失败，忽略
-          }
-        }
-      } catch {
-        // 提取关键字段失败，忽略
+    const res = await fetch("https://edith.xiaohongshu.com/api/sns/web/v2/user/me", {
+      credentials: "include",
+    });
+    if (res.ok) {
+      const data = (await res.json()) as {
+        code?: number;
+        success?: boolean;
+        data?: {
+          guest?: boolean;
+          user_id?: string;
+          red_id?: string;
+          nickname?: string;
+          images?: string;
+          desc?: string;
+        };
+      };
+      if (data?.success && data.data && !data.data.guest) {
+        const d = data.data;
+        return {
+          provider: "rednote",
+          accountId: d.user_id ?? d.red_id ?? "",
+          username: d.nickname ?? "",
+          description: d.desc,
+          profileUrl: `https://www.xiaohongshu.com/user/profile/${d.user_id ?? d.red_id}`,
+          avatarUrl: d.images,
+          extraData: data,
+        };
       }
-
-      throw new Error("解析 __INITIAL_STATE__ 数据失败，返回部分数据");
     }
+  } catch (err) {
+    console.warn("[rednote] API /user/me failed:", err);
   }
 
-  if (!initialState.user.loggedIn) {
-    console.warn("[rednote] __INITIAL_STATE__ parsed but user.loggedIn=false");
-    return null;
+  // Fallback: 创作者中心 API
+  try {
+    const res = await fetch("https://creator.xiaohongshu.com/api/galaxy/creator/user/info", {
+      credentials: "include",
+    });
+    if (res.ok) {
+      const data = (await res.json()) as {
+        success?: boolean;
+        data?: {
+          userId?: string;
+          redId?: string;
+          nickname?: string;
+          imageb?: string;
+          avatar?: string;
+        };
+      };
+      if (data?.success && data.data) {
+        const d = data.data;
+        return {
+          provider: "rednote",
+          accountId: d.userId ?? d.redId ?? "",
+          username: d.nickname ?? "",
+          profileUrl: `https://www.xiaohongshu.com/user/profile/${d.userId ?? d.redId}`,
+          avatarUrl: d.imageb ?? d.avatar,
+          extraData: data,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn("[rednote] API /creator/user/info failed:", err);
   }
 
-  const result: AccountInfo = {
-    provider: "rednote",
-    accountId: initialState.user.userInfo.user_id,
-    username: initialState.user.userInfo.nickname,
-    description: initialState.user.userInfo.desc,
-    profileUrl: `https://www.xiaohongshu.com/user/profile/${initialState.user.userInfo.user_id}`,
-    avatarUrl: initialState.user.userInfo.images,
-    extraData: initialState,
-  };
-
-  return result;
+  console.warn("[rednote] Both APIs failed or returned guest/no data");
+  return null;
 }
