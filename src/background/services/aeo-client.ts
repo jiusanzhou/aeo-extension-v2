@@ -61,12 +61,14 @@ interface AEOTaskReadyEvent {
  */
 const AEO_PLATFORM_TO_MULTIPOST: Record<string, string> = {
   // 动态原生
-  xiaohongshu: "DYNAMIC_REDNOTE",
+  rednote: "DYNAMIC_REDNOTE",
+  xiaohongshu: "DYNAMIC_REDNOTE", // 兼容老数据
   douyin: "DYNAMIC_DOUYIN",
   x: "DYNAMIC_X",
   bilibili: "DYNAMIC_BILIBILI",
   toutiao: "DYNAMIC_TOUTIAO",
-  baijia: "DYNAMIC_BAIJIAHAO",
+  baijiahao: "DYNAMIC_BAIJIAHAO",
+  baijia: "DYNAMIC_BAIJIAHAO", // 兼容老数据
   weibo: "DYNAMIC_WEIBO",
   zhihu: "DYNAMIC_ZHIHU",
   kuaishou: "DYNAMIC_KUAISHOU",
