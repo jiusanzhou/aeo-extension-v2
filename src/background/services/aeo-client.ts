@@ -303,6 +303,7 @@ async function reportAccounts(workerUuid: string): Promise<void> {
 // ================== 任务订阅 (SSE) ==================
 
 let currentSSE: { abort: () => void } | null = null;
+let sseRetryCount = 0;
 
 /**
  * 启动任务订阅 — 使用 fetch streaming 实现 SSE（支持自定义 header）
@@ -349,6 +350,7 @@ export async function aeoStartTaskSubscription(): Promise<void> {
     }
 
     console.log("[AEO] Task subscription connected");
+    sseRetryCount = 0; // 连上了，重置退避
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -387,11 +389,13 @@ export async function aeoStartTaskSubscription(): Promise<void> {
   } catch (error) {
     if ((error as Error).name !== "AbortError") {
       console.warn("[AEO] Task subscription error:", (error as Error).message);
+      sseRetryCount++;
     }
   } finally {
     currentSSE = null;
-    // 5 秒后重连
-    setTimeout(aeoStartTaskSubscription, 5000);
+    // 指数退避重连：5s → 10s → 20s → 40s → max 60s
+    const delay = Math.min(5000 * 2 ** Math.max(0, sseRetryCount - 1), 60000);
+    setTimeout(aeoStartTaskSubscription, delay);
   }
 }
 
