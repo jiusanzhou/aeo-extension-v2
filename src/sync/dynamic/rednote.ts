@@ -2,6 +2,12 @@ import type { DynamicData, SyncData } from "../common";
 
 // 优先发布图文
 export async function DynamicRednote(data: SyncData) {
+  console.log("[rednote] DynamicRednote injected, data:", {
+    hasTitle: !!(data.data as DynamicData).title,
+    contentLength: (data.data as DynamicData).content?.length,
+    imageCount: (data.data as DynamicData).images?.length,
+    isAutoPublish: data.isAutoPublish,
+  });
   const { title, content, images } = data.data as DynamicData;
   // 辅助函数：等待元素出现
   function waitForElement(selector: string, timeout = 10000): Promise<Element> {

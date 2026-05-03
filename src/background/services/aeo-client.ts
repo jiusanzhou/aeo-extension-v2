@@ -476,7 +476,14 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
   // 4. 打开 tab 执行发布
   try {
     await reportTaskEvent(task.taskId, workerUuid, "step", { step: "open_editor" });
-    await createTabsForPlatforms(syncData);
+    console.log(`[AEO] Task ${task.taskId} opening tab with`, {
+      platform: multipostPlatform,
+      imageCount: syncData.data.images.length,
+      contentLength: syncData.data.content?.length,
+      isAutoPublish: syncData.isAutoPublish,
+    });
+    const openedTabs = await createTabsForPlatforms(syncData);
+    console.log(`[AEO] Task ${task.taskId} opened ${openedTabs.length} tabs`);
 
     // 监听 tab URL 变化 — 发布成功后平台会跳到"管理页"或"成功页"
     // 参考 seed-all-builtins.ts 里各平台的 watchPublish.successPattern
