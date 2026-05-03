@@ -34,6 +34,7 @@ function IndexPopup() {
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [pasteToken, setPasteToken] = useState("");
+  const [debugMode, setDebugMode] = useState(false);
 
   const loggedIn = !!apiKey;
 
@@ -285,8 +286,8 @@ function IndexPopup() {
         )}
       </div>
 
-      {/* 平台账号卡片 */}
-      {loggedIn && <PlatformAccountsCard />}
+      {/* 平台账号卡片 — 登录后显示，或调试模式强制显示 */}
+      {(loggedIn || debugMode) && <PlatformAccountsCard />}
 
       <div
         style={{
@@ -296,6 +297,17 @@ function IndexPopup() {
           marginTop: 8,
         }}>
         基于 MultiPost 开源项目 · v{chrome.runtime.getManifest().version}
+        {" · "}
+        <span
+          style={{ cursor: "pointer", textDecoration: "underline" }}
+          onClick={() => setDebugMode(!debugMode)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              setDebugMode(!debugMode);
+            }
+          }}>
+          {debugMode ? "debug✓" : "debug"}
+        </span>
       </div>
     </div>
   );
