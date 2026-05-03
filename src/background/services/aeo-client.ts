@@ -473,17 +473,27 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
     await reportTaskEvent(task.taskId, workerUuid, "step", { step: "open_editor" });
     await createTabsForPlatforms(syncData);
 
-    // 监听 tab URL 变化 — 小红书发布成功后会跳转到 /explore/xxxxx
-    // 其他平台类似（抖音 /video/xxx，B站 /video/BVxxx 等）
+    // 监听 tab URL 变化 — 发布成功后平台会跳到"管理页"或"成功页"
+    // 参考 seed-all-builtins.ts 里各平台的 watchPublish.successPattern
     const publishedUrlPatterns = [
-      /xiaohongshu\.com\/explore\/[a-f0-9]+/i,
-      /douyin\.com\/video\/\d+/i,
-      /bilibili\.com\/video\/BV[a-zA-Z0-9]+/i,
+      // 小红书（创作者中心）
+      /creator\.xiaohongshu\.com\/creator\/(notemanage|publish\/success)/i,
+      /creator\.xiaohongshu\.com\/publish\/success/i,
+      // 抖音
+      /creator\.douyin\.com\/creator-micro\/content\/(manage|preview)/i,
+      // B站
+      /member\.bilibili\.com\/platform\/upload-manager/i,
+      /member\.bilibili\.com\/york\/upload-finish/i,
+      // X/Twitter
       /x\.com\/[^/]+\/status\/\d+/i,
+      // 通用 fallback：各平台的"内容管理/列表"页
+      /zhuanlan\.zhihu\.com\/p\/\d+/i,
+      /mp\.toutiao\.com\/profile_v4\/(graphic|xigua)\/publish-success/i,
+      /baijiahao\.baidu\.com\/builder\/rc\/(edit|publish)\?.*state=published/i,
     ];
 
-    // 30 秒超时 — 如果用户没点发布或者卡住了，上报 failed
-    const timeoutMs = 30 * 1000;
+    // 2 分钟超时 — 图片上传 + 用户点发布 + 服务端处理通常 30-90s
+    const timeoutMs = 2 * 60 * 1000;
     const startTime = Date.now();
 
     const checkPublished = setInterval(async () => {
@@ -493,12 +503,12 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
         for (const pattern of publishedUrlPatterns) {
           if (pattern.test(tab.url)) {
             clearInterval(checkPublished);
+            console.log(`[AEO] Task ${task.taskId} publish detected: ${tab.url}`);
             // 调专用的 publish-detected 接口（带 publishedUrl）
             await apiRequest(`/v1/publish/tasks/${task.taskId}/publish-detected`, {
               method: "POST",
               body: JSON.stringify({ publishedUrl: tab.url }),
             });
-            console.log(`[AEO] Task ${task.taskId} published: ${tab.url}`);
             return;
           }
         }
@@ -508,9 +518,9 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
       if (Date.now() - startTime > timeoutMs) {
         clearInterval(checkPublished);
         await reportTaskEvent(task.taskId, workerUuid, "failed", {
-          error: "Publish timeout (30s) — user may have cancelled or page stuck",
+          error: "Publish timeout (2min) — user may have cancelled or page stuck",
         });
-        console.warn(`[AEO] Task ${task.taskId} timeout`);
+        console.warn(`[AEO] Task ${task.taskId} timeout after 2min`);
       }
     }, 2000); // 每 2 秒检查一次
   } catch (error) {
