@@ -165,10 +165,19 @@ async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
  * 返回后端分配的 Worker UUID
  */
 export async function aeoHeartbeat(): Promise<string | null> {
-  const apiKey = await storage.get<string>("aeoApiKey");
+  let apiKey = await storage.get<string>("aeoApiKey");
   if (!apiKey) {
-    console.log("[AEO] No API key, skipping heartbeat");
-    return null;
+    console.log("[AEO] No API key, trying auto-sync first...");
+    // 尝试从前端 tab 读 localStorage.aeo_token
+    await autoSyncAeoToken({ openLoginIfMissing: false }).catch((e) =>
+      console.warn("[AEO] Auto-sync in heartbeat failed", e),
+    );
+    apiKey = await storage.get<string>("aeoApiKey");
+    if (!apiKey) {
+      console.log("[AEO] Still no API key after sync, skipping heartbeat");
+      return null;
+    }
+    console.log("[AEO] Auto-synced token successfully, continuing heartbeat");
   }
 
   const manifest = chrome.runtime.getManifest();
