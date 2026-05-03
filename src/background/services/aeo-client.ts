@@ -12,7 +12,7 @@
 
 import { Storage } from "@plasmohq/storage";
 import { refreshAccountInfo } from "~sync/account";
-import { type SyncData, createTabsForPlatforms, getPlatformInfos, infoMap } from "~sync/common";
+import { type SyncData, createTabsForPlatforms, infoMap } from "~sync/common";
 import { autoSyncAeoToken } from "./aeo-auth";
 
 const storage = new Storage({ area: "local" });
@@ -153,7 +153,11 @@ async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`[AEO] API ${path} failed: ${response.status} ${response.statusText}`);
+    let errBody = "";
+    try {
+      errBody = await response.text();
+    } catch {}
+    throw new Error(`[AEO] API ${path} failed: ${response.status} ${response.statusText} ${errBody.slice(0, 300)}`);
   }
   return response.json() as Promise<T>;
 }
@@ -252,22 +256,23 @@ async function reportAccounts(workerUuid: string): Promise<void> {
     const failed = refreshResults.filter((r) => r.status === "failed").length;
     console.log(`[AEO] Account refresh: ${loggedIn} logged in, ${failed} failed/not-logged-in`);
 
-    // 3. 收集已刷新成功的账号信息上报
-    const enabledSet = new Set(targetAccountKeys);
-    const platformInfos = await getPlatformInfos();
-    const accounts: AEOWorkerAccount[] = platformInfos
-      .filter((p) => p.accountInfo && enabledSet.has(p.accountKey))
-      .map((p) => ({
-        platform: p.accountKey, // 直接用 MultiPost accountKey
-        platformUserId: p.accountInfo!.accountId,
-        displayName: p.accountInfo!.username,
-        avatarUrl: p.accountInfo!.avatarUrl,
+    // 3. 收集本次刷新成功的账号上报（不依赖 platformInfos 缓存，避免传陈旧数据）
+    const accounts: AEOWorkerAccount[] = refreshResults
+      .filter(
+        (r): r is typeof r & { accountInfo: NonNullable<typeof r.accountInfo> } =>
+          r.status === "logged_in" && !!r.accountInfo,
+      )
+      .map((r) => ({
+        platform: r.platform,
+        platformUserId: r.accountInfo.accountId,
+        displayName: r.accountInfo.username,
+        avatarUrl: r.accountInfo.avatarUrl,
         identity: {
-          platformUserId: p.accountInfo!.accountId,
-          displayName: p.accountInfo!.username,
-          avatarUrl: p.accountInfo!.avatarUrl,
+          platformUserId: r.accountInfo.accountId,
+          displayName: r.accountInfo.username,
+          avatarUrl: r.accountInfo.avatarUrl,
         },
-        externalAccountId: p.accountInfo!.accountId,
+        externalAccountId: r.accountInfo.accountId,
         isActive: true,
       }));
 
