@@ -468,6 +468,11 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
     },
   };
 
+  console.log(
+    `[AEO] Task ${task.taskId} syncData:`,
+    JSON.stringify({ platform: multipostPlatform, imageCount: syncData.data.images.length }),
+  );
+
   // 4. 打开 tab 执行发布
   try {
     await reportTaskEvent(task.taskId, workerUuid, "step", { step: "open_editor" });

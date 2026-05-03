@@ -67,6 +67,7 @@ export async function DynamicRednote(data: SyncData) {
   }
 
   if (images && images.length > 0) {
+    console.log(`[rednote] Starting publish flow with ${images.length} images`);
     // 等待页面加载
     await waitForElement('span[class="title"]');
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -135,5 +136,7 @@ export async function DynamicRednote(data: SyncData) {
         window.location.href = "https://creator.xiaohongshu.com/new/note-manager";
       }
     }
+  } else {
+    console.warn("[rednote] No images — 小红书发布必须有图片，收到的 images:", JSON.stringify(images));
   }
 }
