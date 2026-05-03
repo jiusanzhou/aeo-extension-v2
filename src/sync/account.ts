@@ -155,7 +155,7 @@ export const refreshAccountInfoMap: Record<
  * @param accountKey 账号标识符
  * @returns 返回账号信息
  */
-export async function refreshAccountInfo(accountKey: string): Promise<AccountInfo> {
+export async function refreshAccountInfo(accountKey: string): Promise<AccountInfo | null> {
   const platformInfos = await getPlatformInfos();
   const platformInfo = platformInfos.find((p) => p.accountKey === accountKey);
   if (!platformInfo) {

@@ -1,8 +1,10 @@
 import type { AccountInfo } from "~sync/common";
 
-export async function getRednoteAccountInfo(): Promise<AccountInfo> {
-  // 直接使用fetch API获取小红书页面HTML
-  const response = await fetch("https://www.xiaohongshu.com/explore");
+export async function getRednoteAccountInfo(): Promise<AccountInfo | null> {
+  // 必须带 cookie 才能拿到登录态（Service Worker 默认 same-origin 不带跨域 cookie）
+  const response = await fetch("https://www.xiaohongshu.com/explore", {
+    credentials: "include",
+  });
 
   if (!response.ok) {
     throw new Error(`HTTP错误，状态码: ${response.status}`);
@@ -46,6 +48,12 @@ export async function getRednoteAccountInfo(): Promise<AccountInfo> {
   }
 
   if (!initialStateMatch || !initialStateMatch[1]) {
+    console.warn(
+      "[rednote] Failed to find __INITIAL_STATE__, HTML length:",
+      htmlText.length,
+      "first 200 chars:",
+      htmlText.slice(0, 200),
+    );
     throw new Error("无法找到 __INITIAL_STATE__ 数据");
   }
 
@@ -116,6 +124,7 @@ export async function getRednoteAccountInfo(): Promise<AccountInfo> {
   }
 
   if (!initialState.user.loggedIn) {
+    console.warn("[rednote] __INITIAL_STATE__ parsed but user.loggedIn=false");
     return null;
   }
 
