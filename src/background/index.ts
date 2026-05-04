@@ -9,7 +9,7 @@ import {
 } from "~sync/common";
 import QuantumEntanglementKeepAlive from "../utils/keep-alive";
 import { autoSyncAeoToken } from "./services/aeo-auth";
-import { aeoHeartbeat, aeoInit } from "./services/aeo-client";
+import { aeoHeartbeat, aeoInit, handlePublishFailedFromContent } from "./services/aeo-client";
 import { linkExtensionMessageHandler, starter } from "./services/api";
 import {
   addTabsManagerMessages,
@@ -69,6 +69,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   tabsManagerMessageHandler(request, sender, sendResponse);
   trustDomainMessageHandler(request, sender, sendResponse);
   linkExtensionMessageHandler(request, sender, sendResponse);
+
+  // AEO content script → background：发布失败提前上报
+  if (request?.type === "AEO_PUBLISH_FAILED" && request?.taskId) {
+    handlePublishFailedFromContent(request.taskId, request.error || "unknown error").catch((e) =>
+      console.error("[AEO] handlePublishFailedFromContent threw:", e),
+    );
+    sendResponse({ ok: true });
+  }
+
   return true;
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {

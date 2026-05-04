@@ -219,6 +219,24 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
   return `data:${blob.type || "image/png"};base64,${btoa(binary)}`;
 }
 
+// 活跃任务的 interval 句柄（用于 content script 报错时提前终止轮询）
+const activeTaskIntervals = new Map<string, ReturnType<typeof setInterval>>();
+
+/**
+ * 由 background/index.ts 的 onMessage 调用 — content script 上报发布失败
+ */
+export async function handlePublishFailedFromContent(taskId: string, error: string): Promise<void> {
+  const handle = activeTaskIntervals.get(taskId);
+  if (handle) {
+    clearInterval(handle);
+    activeTaskIntervals.delete(taskId);
+  }
+  const workerUuid = await storage.get<string>("aeoWorkerUuid");
+  if (!workerUuid) return;
+  console.warn(`[AEO] Task ${taskId} failed from content script:`, error);
+  await reportTaskEvent(taskId, workerUuid, "failed", { error });
+}
+
 async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const apiKey = await storage.get<string>("aeoApiKey");
   if (!apiKey) {
@@ -536,6 +554,7 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
   const syncData: SyncData = {
     platforms: [{ name: multipostPlatform, injectUrl: platformInfo.injectUrl }],
     isAutoPublish: true,
+    aeoTaskId: task.taskId,
     data: {
       title: taskDetail.title || "",
       content: taskDetail.content || taskDetail.body || "",
@@ -614,6 +633,7 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
         for (const pattern of publishedUrlPatterns) {
           if (pattern.test(tab.url)) {
             clearInterval(checkPublished);
+            activeTaskIntervals.delete(task.taskId);
             console.log(`[AEO] Task ${task.taskId} publish detected: ${tab.url}`);
             // 调专用的 publish-detected 接口（带 publishedUrl）
             await apiRequest(`/v1/publish/tasks/${task.taskId}/publish-detected`, {
@@ -628,12 +648,14 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
       // 超时检测
       if (Date.now() - startTime > timeoutMs) {
         clearInterval(checkPublished);
+        activeTaskIntervals.delete(task.taskId);
         await reportTaskEvent(task.taskId, workerUuid, "failed", {
           error: "Publish timeout (2min) — user may have cancelled or page stuck",
         });
         console.warn(`[AEO] Task ${task.taskId} timeout after 2min`);
       }
     }, 2000); // 每 2 秒检查一次
+    activeTaskIntervals.set(task.taskId, checkPublished);
   } catch (error) {
     await reportTaskEvent(task.taskId, workerUuid, "failed", {
       error: (error as Error).message,

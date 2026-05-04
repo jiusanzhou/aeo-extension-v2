@@ -20,6 +20,8 @@ export interface SyncData {
   isAutoPublish: boolean;
   data: DynamicData | ArticleData | VideoData | PodcastData;
   origin?: DynamicData | ArticleData | VideoData | PodcastData; // Beta 功能，用于临时存储，发布时不需要提供该字段
+  /** AEO 任务 ID（用于 content script 回传错误） */
+  aeoTaskId?: string;
 }
 
 export interface DynamicData {

@@ -7,8 +7,25 @@ export async function DynamicRednote(data: SyncData) {
     contentLength: (data.data as DynamicData).content?.length,
     imageCount: (data.data as DynamicData).images?.length,
     isAutoPublish: data.isAutoPublish,
+    aeoTaskId: data.aeoTaskId,
   });
   const { title, content, images } = data.data as DynamicData;
+
+  // 报错给 background（让 background 立刻调 reportTaskEvent failed）
+  const reportError = (error: string) => {
+    console.error("[rednote]", error);
+    if (data.aeoTaskId) {
+      try {
+        chrome.runtime.sendMessage({
+          type: "AEO_PUBLISH_FAILED",
+          taskId: data.aeoTaskId,
+          error,
+        });
+      } catch (e) {
+        console.error("[rednote] sendMessage failed:", e);
+      }
+    }
+  };
   // 辅助函数：等待元素出现
   function waitForElement(selector: string, timeout = 10000): Promise<Element> {
     return new Promise((resolve, reject) => {
@@ -85,7 +102,7 @@ export async function DynamicRednote(data: SyncData) {
     ) as HTMLElement;
 
     if (!uploadButton) {
-      console.error("未找到上传图文按钮");
+      reportError("未找到上传图文按钮");
       return;
     }
 
@@ -143,7 +160,7 @@ export async function DynamicRednote(data: SyncData) {
           console.log(`[rednote] 等待发布按钮可用 (${waitAttempts}/30)...`);
         }
         if (publishButton.getAttribute("aria-disabled") === "true") {
-          console.warn("[rednote] 发布按钮 30s 后仍不可点击，可能标题/内容校验未通过");
+          reportError("发布按钮 30s 后仍不可点击，可能标题/内容校验未通过");
           return;
         }
 
@@ -154,7 +171,7 @@ export async function DynamicRednote(data: SyncData) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
         const toast = document.querySelector('[role="alert"], .toast, .message, .notification');
         if (toast?.textContent && (toast.textContent.includes("字") || toast.textContent.includes("失败"))) {
-          console.error("[rednote] 检测到错误提示:", toast.textContent);
+          reportError(`小红书校验失败: ${toast.textContent.trim()}`);
           return;
         }
 
@@ -163,6 +180,6 @@ export async function DynamicRednote(data: SyncData) {
       }
     }
   } else {
-    console.warn("[rednote] No images — 小红书发布必须有图片，收到的 images:", JSON.stringify(images));
+    reportError(`没有图片可上传，小红书发布必须有图片（received images: ${JSON.stringify(images)}）`);
   }
 }
