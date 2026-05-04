@@ -1,5 +1,92 @@
 import type { DynamicData, SyncData } from "../common";
 
+/**
+ * 发布点击后的错误监听器
+ *
+ * 覆盖三种失败信号：
+ *   1. toast/alert 元素出现（文案提示）
+ *   2. 发布 API 请求返回非 2xx（网络级失败）
+ *   3. windowMs 内未出现任何信号 → 返回 null（假定已跳转，让 background 判定）
+ */
+function watchForErrors(opts: {
+  windowMs: number;
+  onError: (reason: string) => void;
+}): Promise<string | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (reason: string | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (reason) opts.onError(reason);
+      resolve(reason);
+    };
+
+    // 1) toast 元素观察（MutationObserver 监听整个 body 新增 toast/alert）
+    const toastSelectors = ['[role="alert"]', ".toast", ".message", ".notification", ".d-toast", ".rd-toast"];
+    const checkToast = (root: Element | Document = document): string | null => {
+      for (const sel of toastSelectors) {
+        const nodes = root.querySelectorAll(sel);
+        for (const n of nodes) {
+          const txt = n.textContent?.trim();
+          // 排除过短（<= 2 字）和明显的非错误文案
+          if (txt && txt.length > 2 && txt.length < 200) return txt;
+        }
+      }
+      return null;
+    };
+    const initial = checkToast();
+    if (initial) {
+      finish(`小红书提示: ${initial}`);
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      const found = checkToast();
+      if (found) finish(`小红书提示: ${found}`);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // 2) fetch 拦截 —— 发布 API 返回非 2xx 时抓
+    const origFetch = window.fetch;
+    const patchedFetch: typeof fetch = async (...args) => {
+      const resp = await origFetch.apply(window, args as Parameters<typeof fetch>);
+      try {
+        const url = typeof args[0] === "string" ? args[0] : (args[0] as Request).url;
+        if (/creator\.xiaohongshu\.com\/.*\/(note\/publish|publish|post)/i.test(url)) {
+          if (!resp.ok) {
+            finish(`发布 API 失败 ${resp.status}: ${resp.statusText}`);
+          } else {
+            // 读一份 clone，成功 API 里 code != 0 也算失败
+            try {
+              const clone = resp.clone();
+              const data = await clone.json();
+              if (data && (data.success === false || (typeof data.code === "number" && data.code !== 0))) {
+                finish(`小红书返回错误: ${data.msg || data.message || JSON.stringify(data)}`);
+              }
+            } catch {
+              /* 非 JSON 忽略 */
+            }
+          }
+        }
+      } catch {
+        /* 拦截逻辑异常不阻塞原请求 */
+      }
+      return resp;
+    };
+    window.fetch = patchedFetch;
+
+    // 3) 超时 → 假定成功跳转，由 background 的 publishedUrlPatterns 判断
+    const timer = setTimeout(() => finish(null), opts.windowMs);
+
+    const cleanup = () => {
+      observer.disconnect();
+      if (window.fetch === patchedFetch) window.fetch = origFetch;
+      clearTimeout(timer);
+    };
+  });
+}
+
 // 优先发布图文
 export async function DynamicRednote(data: SyncData) {
   console.log("[rednote] DynamicRednote injected, data:", {
@@ -165,14 +252,21 @@ export async function DynamicRednote(data: SyncData) {
         }
 
         console.log("[rednote] 点击发布按钮");
+
+        // 发布前：安装 toast 观察器 + fetch/XHR 拦截器
+        // 成功：小红书直接跳 URL（由 background 的 publishedUrlPatterns 感知）
+        // 失败：toast 出现 or API 返回非 2xx or 页面仍停留
+        const errorPromise = watchForErrors({
+          windowMs: 15000,
+          onError: (reason) => reportError(reason),
+        });
+
         publishButton.click();
 
-        // 检测是否出现错误 toast（小红书校验失败会弹 toast）
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        const toast = document.querySelector('[role="alert"], .toast, .message, .notification');
-        if (toast?.textContent && (toast.textContent.includes("字") || toast.textContent.includes("失败"))) {
-          reportError(`小红书校验失败: ${toast.textContent.trim()}`);
-          return;
+        // 等 15s：要么抓到错误，要么认为已跳转（background 会检测 URL）
+        const errorReason = await errorPromise;
+        if (errorReason) {
+          return; // reportError 已在 onError 里调过
         }
 
         // 不主动跳 URL — 由小红书自己跳 creator/notemanage，扩展 background
