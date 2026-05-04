@@ -139,6 +139,86 @@ async function getEnabledPlatforms(forceRefresh = false): Promise<string[]> {
 
 // ================== 工具函数 ==================
 
+/**
+ * 用 OffscreenCanvas 生成独特的封面图，避免 stock 图被平台风控
+ */
+async function generateCoverImage(title: string, seed: string): Promise<Blob> {
+  const W = 1080;
+  const H = 1440;
+  const canvas = new OffscreenCanvas(W, H);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("No 2d context on OffscreenCanvas");
+
+  // 基于 seed 的哈希生成色相
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+
+  // 渐变背景
+  const gradient = ctx.createLinearGradient(0, 0, W, H);
+  gradient.addColorStop(0, `hsl(${hue}, 70%, 65%)`);
+  gradient.addColorStop(1, `hsl(${(hue + 60) % 360}, 70%, 45%)`);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, W, H);
+
+  // 装饰圆圈（增加视觉变化，降低 stock 图识别率）
+  for (let i = 0; i < 8; i++) {
+    const cx = ((hash >> i) & 0xff) * 4.23;
+    const cy = ((hash >> (i + 3)) & 0xff) * 5.64;
+    const r = 40 + (((hash >> (i + 5)) & 0xff) % 120);
+    ctx.fillStyle = `hsla(${(hue + i * 30) % 360}, 80%, 80%, 0.2)`;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 标题文字（自动换行）
+  ctx.fillStyle = "white";
+  ctx.font = "bold 72px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowColor = "rgba(0,0,0,0.3)";
+  ctx.shadowBlur = 12;
+  ctx.shadowOffsetY = 4;
+
+  const maxWidth = W - 120;
+  const lineHeight = 96;
+  const lines: string[] = [];
+  let current = "";
+  for (const char of title) {
+    const testLine = current + char;
+    if (ctx.measureText(testLine).width > maxWidth && current.length > 0) {
+      lines.push(current);
+      current = char;
+    } else {
+      current = testLine;
+    }
+  }
+  if (current) lines.push(current);
+
+  const startY = H / 2 - ((lines.length - 1) * lineHeight) / 2;
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i]!, W / 2, startY + i * lineHeight);
+  }
+
+  return await canvas.convertToBlob({ type: "image/png" });
+}
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  // Service Worker 里没有 FileReader，手动用 ArrayBuffer + btoa
+  const buf = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  // 分块 btoa 避免 stack overflow
+  let binary = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK) as unknown as number[]);
+  }
+  return `data:${blob.type || "image/png"};base64,${btoa(binary)}`;
+}
+
 async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const apiKey = await storage.get<string>("aeoApiKey");
   if (!apiKey) {
@@ -467,6 +547,25 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
       videos: [],
     },
   };
+
+  // 小红书/抖音强制要图：若 images 为空或全是占位 URL，本地用 OffscreenCanvas 生成独特封面
+  // 避免 picsum/unsplash 等 stock 图被平台风控
+  const platformsRequiringImage = new Set(["DYNAMIC_REDNOTE", "DYNAMIC_DOUYIN"]);
+  if (
+    platformsRequiringImage.has(multipostPlatform) &&
+    (syncData.data.images.length === 0 ||
+      syncData.data.images.some((i) => /picsum\.photos|placeholder|placehold/i.test(i.url)))
+  ) {
+    try {
+      const coverBlob = await generateCoverImage(taskDetail.title || "无标题", task.taskId);
+      // 转 data URL（base64）以便 content script 跨 origin 使用
+      const dataUrl = await blobToDataUrl(coverBlob);
+      syncData.data.images = [{ name: "cover.png", url: dataUrl, type: "image/png" }];
+      console.log(`[AEO] Task ${task.taskId} generated local cover image (${coverBlob.size} bytes)`);
+    } catch (err) {
+      console.warn("[AEO] Cover gen failed, fallback to original:", err);
+    }
+  }
 
   console.log(
     `[AEO] Task ${task.taskId} syncData:`,
