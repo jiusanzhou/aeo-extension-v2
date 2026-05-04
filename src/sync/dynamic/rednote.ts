@@ -97,10 +97,15 @@ export async function DynamicRednote(data: SyncData) {
     await uploadImages();
     await new Promise((resolve) => setTimeout(resolve, 5000)); // 等待图片上传完成
 
-    // 填写标题
+    // 填写标题 — 小红书硬限制 20 字，超过会触发 toast 拦截发布
     const titleInput = (await waitForElement('input[type="text"]')) as HTMLInputElement;
     if (titleInput) {
-      const titleText = title || content?.slice(0, 20) || "";
+      const MAX_TITLE_LENGTH = 20;
+      let titleText = title || content?.slice(0, MAX_TITLE_LENGTH) || "";
+      if (titleText.length > MAX_TITLE_LENGTH) {
+        titleText = titleText.slice(0, MAX_TITLE_LENGTH);
+        console.log(`[rednote] Title truncated to ${MAX_TITLE_LENGTH} chars: "${titleText}"`);
+      }
       titleInput.value = titleText;
       titleInput.dispatchEvent(new Event("input", { bubbles: true }));
     }
@@ -131,15 +136,30 @@ export async function DynamicRednote(data: SyncData) {
 
       if (publishButton) {
         // 等待按钮可用
-        while (publishButton.getAttribute("aria-disabled") === "true") {
+        let waitAttempts = 0;
+        while (publishButton.getAttribute("aria-disabled") === "true" && waitAttempts < 30) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
-          console.log("等待发布按钮可用...");
+          waitAttempts++;
+          console.log(`[rednote] 等待发布按钮可用 (${waitAttempts}/30)...`);
+        }
+        if (publishButton.getAttribute("aria-disabled") === "true") {
+          console.warn("[rednote] 发布按钮 30s 后仍不可点击，可能标题/内容校验未通过");
+          return;
         }
 
-        console.log("点击发布按钮");
+        console.log("[rednote] 点击发布按钮");
         publishButton.click();
-        await new Promise((resolve) => setTimeout(resolve, 10000));
-        window.location.href = "https://creator.xiaohongshu.com/new/note-manager";
+
+        // 检测是否出现错误 toast（小红书校验失败会弹 toast）
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const toast = document.querySelector('[role="alert"], .toast, .message, .notification');
+        if (toast?.textContent && (toast.textContent.includes("字") || toast.textContent.includes("失败"))) {
+          console.error("[rednote] 检测到错误提示:", toast.textContent);
+          return;
+        }
+
+        // 不主动跳 URL — 由小红书自己跳 creator/notemanage，扩展 background
+        // 监听 tab URL 跳转判断成功（publishedUrlPatterns）
       }
     }
   } else {
