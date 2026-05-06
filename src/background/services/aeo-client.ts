@@ -68,8 +68,8 @@ const AEO_PLATFORM_TO_MULTIPOST: Record<string, string> = {
   bilibili: "DYNAMIC_BILIBILI",
   toutiao: "ARTICLE_TOUTIAO",
   weixin: "ARTICLE_WEIXIN",
-  baijiahao: "DYNAMIC_BAIJIAHAO",
-  baijia: "DYNAMIC_BAIJIAHAO", // 兼容老数据
+  baijiahao: "ARTICLE_BAIJIAHAO",
+  baijia: "ARTICLE_BAIJIAHAO", // 兼容老数据
   weibo: "DYNAMIC_WEIBO",
   zhihu: "DYNAMIC_ZHIHU",
   kuaishou: "DYNAMIC_KUAISHOU",
@@ -569,7 +569,13 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
   };
 
   // 这些平台发图文必须本地生成封面（避免 picsum/unsplash 等 stock 图被平台风控）
-  const platformsRequiringImage = new Set(["DYNAMIC_REDNOTE", "DYNAMIC_DOUYIN", "ARTICLE_TOUTIAO", "ARTICLE_WEIXIN"]);
+  const platformsRequiringImage = new Set([
+    "DYNAMIC_REDNOTE",
+    "DYNAMIC_DOUYIN",
+    "ARTICLE_TOUTIAO",
+    "ARTICLE_WEIXIN",
+    "ARTICLE_BAIJIAHAO",
+  ]);
   if (
     platformsRequiringImage.has(multipostPlatform) &&
     (syncData.data.images.length === 0 ||
