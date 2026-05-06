@@ -66,7 +66,8 @@ const AEO_PLATFORM_TO_MULTIPOST: Record<string, string> = {
   douyin: "DYNAMIC_DOUYIN",
   x: "DYNAMIC_X",
   bilibili: "DYNAMIC_BILIBILI",
-  toutiao: "DYNAMIC_TOUTIAO",
+  toutiao: "ARTICLE_TOUTIAO",
+  weixin: "ARTICLE_WEIXIN",
   baijiahao: "DYNAMIC_BAIJIAHAO",
   baijia: "DYNAMIC_BAIJIAHAO", // 兼容老数据
   weibo: "DYNAMIC_WEIBO",
@@ -567,9 +568,8 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
     },
   };
 
-  // 小红书/抖音强制要图：若 images 为空或全是占位 URL，本地用 OffscreenCanvas 生成独特封面
-  // 避免 picsum/unsplash 等 stock 图被平台风控
-  const platformsRequiringImage = new Set(["DYNAMIC_REDNOTE", "DYNAMIC_DOUYIN"]);
+  // 这些平台发图文必须本地生成封面（避免 picsum/unsplash 等 stock 图被平台风控）
+  const platformsRequiringImage = new Set(["DYNAMIC_REDNOTE", "DYNAMIC_DOUYIN", "ARTICLE_TOUTIAO", "ARTICLE_WEIXIN"]);
   if (
     platformsRequiringImage.has(multipostPlatform) &&
     (syncData.data.images.length === 0 ||
@@ -584,6 +584,36 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
     } catch (err) {
       console.warn("[AEO] Cover gen failed, fallback to original:", err);
     }
+  }
+
+  // ARTICLE 类型平台需要额外字段（htmlContent/digest/cover）
+  // 扩展里 article 适配器读的是 ArticleData 结构，而不是 DynamicData
+  // ⚠️ 必须在 cover 本地生成之后跑，才能拿到最终的 images[0]
+  if (platformInfo.type === "ARTICLE") {
+    const content = taskDetail.content || taskDetail.body || "";
+    // 简单把 plain/markdown 内容包成 HTML 段落（保留换行）
+    const htmlContent = /<\w+[^>]*>/i.test(content)
+      ? content
+      : content
+          .split(/\n{2,}/)
+          .map((p: string) => `<p>${p.replace(/\n/g, "<br/>")}</p>`)
+          .join("");
+    // digest：取前 120 字的纯文本摘要
+    const digest = content
+      .replace(/<[^>]+>/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120);
+    const firstImage = syncData.data.images[0];
+    const cover = firstImage ?? { name: "cover.jpg", url: "", type: "image/jpeg" };
+    // 扩展覆盖成 ArticleData 结构
+    (syncData.data as any) = {
+      ...syncData.data,
+      htmlContent,
+      markdownContent: content,
+      digest,
+      cover,
+    };
   }
 
   console.log(
@@ -619,6 +649,9 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
       // 通用 fallback：各平台的"内容管理/列表"页
       /zhuanlan\.zhihu\.com\/p\/\d+/i,
       /mp\.toutiao\.com\/profile_v4\/(graphic|xigua)\/publish-success/i,
+      // 微信公众号（新建文章后跳到草稿箱/列表）
+      /mp\.weixin\.qq\.com\/cgi-bin\/(appmsg|appmsgtemplate|home)/i,
+      /mp\.weixin\.qq\.com\/cgi-bin\/appmsgpublish/i,
       /baijiahao\.baidu\.com\/builder\/rc\/(edit|publish)\?.*state=published/i,
     ];
 
