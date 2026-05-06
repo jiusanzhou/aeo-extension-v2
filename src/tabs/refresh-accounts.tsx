@@ -2,7 +2,7 @@ import "~style.css";
 import cssText from "data-text:~style.css";
 import { Button, HeroUIProvider, Image, Switch } from "@heroui/react";
 import { Storage } from "@plasmohq/storage";
-import { CheckCircle2, ExternalLink, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { refreshAccountInfoMap, refreshAllAccountInfo } from "~sync/account";
@@ -198,7 +198,15 @@ const RefreshAccounts = () => {
                       {account ? (
                         <CheckCircle2 className="ml-4 w-5 h-5 text-green-500 shrink-0" />
                       ) : (
-                        <XCircle className="ml-4 w-5 h-5 text-red-500 shrink-0" />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            chrome.tabs.create({ url: info.homeUrl, active: true });
+                          }}
+                          className="ml-4 px-3 py-1 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded shrink-0"
+                          title="打开登录页">
+                          去登录
+                        </button>
                       )}
                     </div>
                   );

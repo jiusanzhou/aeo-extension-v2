@@ -500,13 +500,26 @@ function PlatformAccountsCard() {
                       color: "#6b7280",
                     }}>
                     未检测到登录 —{" "}
-                    <a
-                      href={meta?.homeUrl || "#"}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: "#0ea5e9", textDecoration: "none" }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = meta?.homeUrl;
+                        if (url) {
+                          chrome.tabs.create({ url, active: true });
+                          window.close();
+                        }
+                      }}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        padding: 0,
+                        color: "#0ea5e9",
+                        cursor: "pointer",
+                        textDecoration: "underline",
+                        fontSize: 11,
+                      }}>
                       打开登录页
-                    </a>
+                    </button>
                   </div>
                 )}
               </div>
