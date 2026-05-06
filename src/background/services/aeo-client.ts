@@ -71,7 +71,7 @@ const AEO_PLATFORM_TO_MULTIPOST: Record<string, string> = {
   baijiahao: "ARTICLE_BAIJIAHAO",
   baijia: "ARTICLE_BAIJIAHAO", // 兼容老数据
   weibo: "DYNAMIC_WEIBO",
-  zhihu: "DYNAMIC_ZHIHU",
+  zhihu: "ARTICLE_ZHIHU",
   kuaishou: "DYNAMIC_KUAISHOU",
   jike: "DYNAMIC_OKJIKE",
   douban: "DYNAMIC_DOUBAN",
@@ -575,6 +575,7 @@ async function handleTaskReady(task: AEOTaskReadyEvent): Promise<void> {
     "ARTICLE_TOUTIAO",
     "ARTICLE_WEIXIN",
     "ARTICLE_BAIJIAHAO",
+    "ARTICLE_ZHIHU",
   ]);
   if (
     platformsRequiringImage.has(multipostPlatform) &&
