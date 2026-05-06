@@ -12,7 +12,9 @@ import { getQiEAccountInfo } from "./account/qie";
 import { getRednoteAccountInfo } from "./account/rednote";
 import { getSohuAccountInfo } from "./account/sohu";
 import { getTiktokAccountInfo } from "./account/tiktok";
+import { getToutiaoAccountInfo } from "./account/toutiao";
 import { getVivoVideoAccountInfo } from "./account/vivovideo";
+import { getWeixinAccountInfo } from "./account/weixin";
 import { getXAccountInfo } from "./account/x";
 import { getYicheAccountInfo } from "./account/yiche";
 import { getYidianAccountInfo } from "./account/yidian";
@@ -63,6 +65,20 @@ export const refreshAccountInfoMap: Record<
     homeUrl: "https://creator.xiaohongshu.com",
     faviconUrl: "https://fe-video-qc.xhscdn.com/fe-platform/ed8fe781ce9e16c1bfac2cd962f0721edabe2e49.ico",
     getAccountInfo: getRednoteAccountInfo,
+  },
+  toutiao: {
+    platformName: chrome.i18n.getMessage("platformToutiao") || "头条号",
+    accountKey: "toutiao",
+    homeUrl: "https://mp.toutiao.com/",
+    faviconUrl: "https://sf1-cdn-tos.toutiaostatic.com/obj/ttfe/pgcfe/sz/mp_logo.png",
+    getAccountInfo: getToutiaoAccountInfo,
+  },
+  weixin: {
+    platformName: chrome.i18n.getMessage("platformWeixin") || "公众号",
+    accountKey: "weixin",
+    homeUrl: "https://mp.weixin.qq.com/",
+    faviconUrl: "https://mp.weixin.qq.com/favicon.ico",
+    getAccountInfo: getWeixinAccountInfo,
   },
   bilibili: {
     platformName: chrome.i18n.getMessage("platformBilibili"),
