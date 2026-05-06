@@ -1,6 +1,7 @@
 import { Storage } from "@plasmohq/storage";
 import { ping } from "~background/services/api";
 import { getAlipayAccountInfo } from "./account/alipay";
+import { getBaijiahaoAccountInfo } from "./account/baijiahao";
 import { getBilibiliAccountInfo } from "./account/bilibili";
 import { getChejiahaoAccountInfo } from "./account/chejiahao";
 import { getDayuAccountInfo } from "./account/dayu";
@@ -79,6 +80,13 @@ export const refreshAccountInfoMap: Record<
     homeUrl: "https://mp.weixin.qq.com/",
     faviconUrl: "https://mp.weixin.qq.com/favicon.ico",
     getAccountInfo: getWeixinAccountInfo,
+  },
+  baijiahao: {
+    platformName: chrome.i18n.getMessage("platformBaijiahao") || "百家号",
+    accountKey: "baijiahao",
+    homeUrl: "https://baijiahao.baidu.com/builder/rc/home",
+    faviconUrl: "https://baijiahao.baidu.com/favicon.ico",
+    getAccountInfo: getBaijiahaoAccountInfo,
   },
   bilibili: {
     platformName: chrome.i18n.getMessage("platformBilibili"),
