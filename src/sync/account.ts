@@ -19,6 +19,7 @@ import { getWeixinAccountInfo } from "./account/weixin";
 import { getXAccountInfo } from "./account/x";
 import { getYicheAccountInfo } from "./account/yiche";
 import { getYidianAccountInfo } from "./account/yidian";
+import { getZhihuAccountInfo } from "./account/zhihu";
 import { type AccountInfo, type PlatformInfo, getPlatformInfos } from "./common";
 
 // 存储账号信息的键名
@@ -87,6 +88,13 @@ export const refreshAccountInfoMap: Record<
     homeUrl: "https://baijiahao.baidu.com/builder/rc/home",
     faviconUrl: "https://baijiahao.baidu.com/favicon.ico",
     getAccountInfo: getBaijiahaoAccountInfo,
+  },
+  zhihu: {
+    platformName: chrome.i18n.getMessage("platformZhihu") || "知乎",
+    accountKey: "zhihu",
+    homeUrl: "https://www.zhihu.com/",
+    faviconUrl: "https://static.zhihu.com/heifetz/favicon.ico",
+    getAccountInfo: getZhihuAccountInfo,
   },
   bilibili: {
     platformName: chrome.i18n.getMessage("platformBilibili"),
