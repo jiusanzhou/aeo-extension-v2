@@ -691,6 +691,10 @@
     "message": "今日头条",
     "description": "今日头条平台名称"
   },
+  "platformPenguin": {
+    "message": "企鹅号",
+    "description": "腾讯内容开放平台 (om.qq.com) 平台名称"
+  },
   "optionsQQGroup": {
     "message": "QQ交流群",
     "description": "QQ group number"

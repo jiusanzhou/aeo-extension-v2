@@ -713,6 +713,10 @@
     "message": "Toutiao",
     "description": "Platform name for Toutiao"
   },
+  "platformPenguin": {
+    "message": "Penguin (om.qq.com)",
+    "description": "Tencent Content Open Platform"
+  },
   "optionsQQGroup": {
     "message": "QQ Group",
     "description": "QQ group number"

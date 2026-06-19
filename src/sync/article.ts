@@ -6,6 +6,7 @@ import { ArticleDouban } from "./article/douban";
 import { ArticleEastmoney } from "./article/eastmoney";
 import { ArticleJianshu } from "./article/jianshu";
 import { ArticleJuejin } from "./article/juejin";
+import { ArticlePenguin } from "./article/penguin";
 import { ArticleSegmentfault } from "./article/segmentfault";
 import { ArticleSSPai } from "./article/sspai";
 import { ArticleSubstack } from "./article/substack";
@@ -94,6 +95,17 @@ export const ArticleInfoMap: Record<string, PlatformInfo> = {
     injectFunction: ArticleToutiao,
     tags: ["CN"],
     accountKey: "toutiao",
+  },
+  ARTICLE_PENGUIN: {
+    type: "ARTICLE",
+    name: "ARTICLE_PENGUIN",
+    homeUrl: "https://om.qq.com/",
+    faviconUrl: "https://om.qq.com/favicon.ico",
+    platformName: chrome.i18n.getMessage("platformPenguin"),
+    injectUrl: "https://om.qq.com/article/articlePub",
+    injectFunction: ArticlePenguin,
+    tags: ["CN"],
+    accountKey: "penguin",
   },
   ARTICLE_DOUBAN: {
     type: "ARTICLE",

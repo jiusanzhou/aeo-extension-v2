@@ -8,6 +8,7 @@ import { getDayuAccountInfo } from "./account/dayu";
 import { getDewuAccountInfo } from "./account/dewu";
 import { getDouyinAccountInfo } from "./account/douyin";
 import { getNeteaseAccountInfo } from "./account/netease";
+import { getPenguinAccountInfo } from "./account/penguin";
 import { getPinduoduoAccountInfo } from "./account/pinduoduo";
 import { getQiEAccountInfo } from "./account/qie";
 import { getRednoteAccountInfo } from "./account/rednote";
@@ -74,6 +75,13 @@ export const refreshAccountInfoMap: Record<
     homeUrl: "https://mp.toutiao.com/",
     faviconUrl: "https://sf1-cdn-tos.toutiaostatic.com/obj/ttfe/pgcfe/sz/mp_logo.png",
     getAccountInfo: getToutiaoAccountInfo,
+  },
+  penguin: {
+    platformName: chrome.i18n.getMessage("platformPenguin") || "企鹅号",
+    accountKey: "penguin",
+    homeUrl: "https://om.qq.com/",
+    faviconUrl: "https://om.qq.com/favicon.ico",
+    getAccountInfo: getPenguinAccountInfo,
   },
   weixin: {
     platformName: chrome.i18n.getMessage("platformWeixin") || "公众号",
